@@ -3,18 +3,33 @@
 %% compliance with the License. You should have received a copy of the
 %% Erlang Public License along with this software. If not, it can be
 %% retrieved via the world wide web at http://www.erlang.org/.
-%%
+%% 
 %% Software distributed under the License is distributed on an "AS IS"
 %% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
 %% the License for the specific language governing rights and limitations
-%% under the License.  %%
+%% under the License.
+%% 
 %% The Initial Developer of the Original Code is Ericsson Utvecklings AB.
 %% Portions created by Ericsson are Copyright 1999, Ericsson Utvecklings
 %% AB. All Rights Reserved.''
-%%
+%% 
 %%     $Id$
-%% Changes: writes out forms as HTML
--module(erl_to_html).
+%%
+-module(erl_id_trans).
+
+%% A identity transformer of Erlang abstract syntax.
+
+%% This module only traverses legal Erlang code. This is most noticeable
+%% in guards where only a limited number of expressions are allowed.
+%% N.B. if this module is to be used as a basis for tranforms then
+%% all the error cases must be handled otherwise this module just crashes!
+
+%% I'd like to try creating the HTML without having to thread the file and separators
+%% through the whole file.
+%%
+%% I think I can just pass back the origin Forms as-is.
+%% This means that I don't need any of the functions to return the
+%% origin {foo, Bar, Baz} form, they can simply return HTML io_lists.
 
 -export([write_html/1]).
 -export([parse_transform/2]).
@@ -35,8 +50,6 @@
 -define(SPAN_CLOSE, "</span>").
 -define(NO_SEPARATOR, "").
 
-%% Compile file and apply this module as the
-%% parse transform
 write_html(Filename) ->
     io:format("Compiling ~p~n", [Filename]),
     compile:file(Filename, [{parse_transform, ?MODULE}, {d, filename, Filename}]).
@@ -46,7 +59,9 @@ parse_transform(Forms, Options) ->
               [Forms, Options]),
     Filename = filename(Options),
     io:format("Filename: ~p~n", [Filename]),
-    forms(Forms, Filename),
+    {ok, HtmlFile} = file:open(Filename, [write]),
+    HTML = parse(html(Forms)),
+    file:write(HtmlFile, HTML),
     Forms.
 
 filename(Options) ->
@@ -57,139 +72,84 @@ filename(Options) ->
             filename:rootname(Filename) ++ ".html"
     end.
 
-forms(Forms, Filename) ->
-    io:format("Opening file for ~p.~n", [Filename]),
-    {ok, File} = file:open(Filename, [write]),
-    io:format("File opened.~n"),
-    file:write(File, "<html><head></head><body>"),
-    %F1 = form(F0),
-    %Fs1 = forms(Fs0),
-    %[F1|Fs1];
-    Fun = fun(Form, TransformedForms) ->
-                  io:format("Handling form: ~p~n", [Form]),
-                  [form(Form, File) | TransformedForms]
-          end,
-    io:format("Fun created~n"),
-    Transformed = lists:reverse(lists:foldl(Fun, [], Forms)),
-    io:format(user, "Transformed = ~p~n", [Transformed]),
-    file:write(File, "</body></html>"),
-    io:format("Closing file~n"),
-    ok = file:close(File).
+%% No raw numbers should show up in the HTML
+parse(String = [I | _]) when is_number(I) ->
+    String;
+parse(List) when is_list(List) ->
+    lists:map(fun parse/1, List);
+parse(Symbol) when is_atom(Symbol) ->
+    parse_symbol(Symbol);
+parse(Other) ->
+    Other.
+
+
+%% forms(Fs) -> lists:map(fun (F) -> form(F) end, Fs).
+
+html(Forms) when is_list(Forms) ->
+    [html(Form) || Form <- Forms];
 
 %% -type form(Form) -> Form.
 %%  Here we show every known form and valid internal structure. We do not
 %%  that the ordering is correct!
 
 %% First the various attributes.
-form({attribute,Line,module,Mod}, File) ->
-    io:format("Writing: ~p~n", [["<div>",
-                                 ?LINE_SPAN,
-                                 "<span class=\"module\">",
-                                 atom_to_list(Mod),
-                                 "</span>"
-                                 "</div>"]]),
-    Result = file:write(File,
-               ["<div>",
-                ?LINE_SPAN,
-                "<span class=\"module\">",
-                atom_to_list(Mod),
-                "</span>"
-                "</div>"]),
-    io:format(user, "Result = ~p~n", [Result]),
-    {attribute,Line,module,Mod};
-form({attribute,Line,file,{File,Line}}, HtmlFile) ->	%This is valid anywhere.
-    file:write(HtmlFile,
-               ["<div>",
-                ?LINE_SPAN,
-                "<span class=\"file\">",
-                File,
-                "</span>"
-                "</div>"]),
-    {attribute,Line,file,{File,Line}};
-form({attribute,Line,export,Es0}, HtmlFile) ->
-    file:write(HtmlFile,
-               ["<div>",
-                ?LINE_SPAN,
-                ?DASH,
-                span("export"),
-                ?BRACKET_OPEN]),
-    _ = farity_list(HtmlFile, Es0),
-    file:write(HtmlFile,
-               [?BRACKET_CLOSE,
-                "</div>"]),
-    {attribute,Line,export,Es0};
-form({attribute,Line,import,{Mod,Is0}}, HtmlFile) ->
-    file:write(HtmlFile,
-               [div_open("import_line"),
-                ?LINE_SPAN,
-                ?DASH,
-                span("import"),
-                ?COMMA,
-                span("module", atom_to_list(Mod)),
-                ?PAREN_OPEN,
-                ?BRACKET_OPEN,
-                div_close()]),
-    _ = farity_list(HtmlFile, Is0),
-    file:write(HtmlFile,
-               [?BRACKET_CLOSE,
-                ?PAREN_CLOSE,
-                "</span>"
-                "</div>"]),
-    {attribute,Line,import,{Mod,Is0}};
-%% TODO what about lists of compile options?
-form({attribute,Line,compile,C}, HtmlFile) ->
-    file:write(HtmlFile,
-               ["<div>",
-                ?DASH,
-                span("compile"),
-                ?PAREN_OPEN,
-                span("compile_option", atom_to_list(C)),
-                ?PAREN_CLOSE,
-                ?PERIOD,
-                "</div>"]),
-    {attribute,Line,compile,C};
-form({attribute,Line,record,{Name,Defs0}}, HtmlFile) ->
-    file:write(HtmlFile,
-               [div_open("record_block"),
-                ?DASH,
-                span("record"),
-                ?COMMA,
-                %% " ", I can do this with CSS
-                ?BRACE_OPEN]),
-    _ = record_defs(Defs0),
-    file:write(HtmlFile,
-               [?BRACE_CLOSE,
-                ?PAREN_CLOSE,
-                ?PERIOD]),
-    {attribute,Line,record,{Name,Defs0}};
-form({attribute,Line,asm,{function,N,A,Code}}, _HtmlFile) ->
-    {attribute,Line,asm,{function,N,A,Code}};
-form({attribute,Line,Attr,Val}, _HtmlFile) ->		%The general attribute.
-    {attribute,Line,Attr,Val};
-form({function,Line,Name0,Arity0,Clauses0}, HtmlFile) ->
-    {Name,Arity,Clauses} = function(Line, Name0, Arity0, Clauses0, HtmlFile),
-    {function,Line,Name,Arity,Clauses};
+html({attribute,Line,module,Mod}) ->
+    ["<div>",
+     ?LINE_SPAN,
+     "<span class=\"module\">",
+     atom_to_list(Mod),
+     "</span>"
+     "</div>"];
+html({attribute,Line,file,{File,Line}}) ->	%This is valid anywhere.
+    ["<div>",
+     line(Line),
+     "<span class=\"file\">",
+     File,
+     "</span>"
+     "</div>"];
+html({attribute,Line,export,Es0}) ->
+    [div_([line(Line),
+           span("export_block")
+                ['-', 'export', '[', farity_list(Es0), ']']), ]);
+html({attribute,Line,import,{Mod,Is0}}) ->
+    ModuleSpan = span("module", atom_to_list(Mod)),
+    [span_open("import_line"),
+     line(Line),
+     '-', 'import', ',', ModuleSpan, '(', '[', farity_list(Is0), ']', ')',
+     span_close()];
+html({attribute,Line,compile,C}) ->
+    ["<div>",
+     line(Line),
+     '-', 'compile', '(', span("compile_option", atom_to_list(C)), ')', '.',
+     "</div>"];
+html({attribute,Line,record,{Name,Defs}}) ->
+    [div_open("record_block"),
+     ?LINE_SPAN,
+     '-', 'record', '(', span("record_name", atom_to_list(Name)), ',', '{', 
+     record_defs(Defs),
+     '}', ')', '.'];
+html({attribute,Line,asm,{function,N,A,Code}}) ->
+    "";
+html({attribute,Line,Attr,Val}) ->		%The general attribute.
+    "";
+html({function,Line,Name0,Arity0,Clauses0}) ->
+    function(Name0, Arity0, Clauses0);
 % Mnemosyne, ignore...
-form({rule,Line,Name,Arity,Body}, _HtmlFile) ->
+html({rule,Line,Name,Arity,Body}) ->
     {rule,Line,Name,Arity,Body}; % Dont dig into this
 %% Extra forms from the parser.
-form({error,E}, _HtmlFile) -> {error,E};
-form({warning,W}, _HtmlFile) -> {warning,W};
-form({eof,Line}, _HtmlFile) -> {eof,Line}.
+html({error,E}) ->
+    {error,E};
+html({warning,W}) ->
+    {warning,W};
+html({eof,Line}) ->
+    {eof,Line}.
 
 %% -type farity_list([Farity]) -> [Farity] when Farity <= {atom(),integer()}.
 
-farity_list(File, [{Name,Arity}| [_ | _ ] = Fas]) ->
-    file:write(File, [name_arity(Name, Arity), ?COMMA]),
-    farity_list(File, Fas);
-farity_list(File, [{Name, Arity}]) ->
-    file:write(File, name_arity(Name, Arity));
-farity_list(_HtmlFile, []) -> [].
-
-name_arity(Name, Arity) ->
-    [span("function", atom_to_list(Name)),
-     ?SLASH,
-     span("arity", integer_to_list(Arity))].
+farity_list([{Name,Arity}|Fas]) ->
+    [{Name,Arity}|farity_list(Fas)];
+farity_list([]) -> [].
 
 %% -type record_defs([RecDef]) -> [RecDef].
 %%  N.B. Field names are full expressions here but only atoms are allowed
@@ -204,182 +164,82 @@ record_defs([]) -> [].
 
 %% -type function(atom(), integer(), [Clause]) -> {atom(),integer(),[Clause]}.
 
-function(Line, Name, Arity, Clauses, HtmlFile) ->
-    file:write(HtmlFile, span_open("function")),
-    file:write(HtmlFile, ?LINE_SPAN),
-    _ = clauses(Clauses, Name, HtmlFile),
-    file:write(HtmlFile, ?SPAN_CLOSE),
-    {Name,Arity,Clauses}.
+function(Name, Arity, Clauses0) ->
+    Clauses1 = clauses(Clauses0),
+    {Name,Arity,Clauses1}.
 
 %% -type clauses([Clause]) -> [Clause].
-clauses([C], Name, HtmlFile) ->
-    clause(C, Name, ?PERIOD, HtmlFile);
-clauses([C0|Cs], Name, HtmlFile) ->
-    C1 = clause(C0, Name, ?SEMICOLON, HtmlFile),
-    [C1|clauses(Cs, Name, HtmlFile)];
-clauses([], _Name, _File) -> [].
+
+clauses([C0|Cs]) ->
+    C1 = clause(C0),
+    [C1|clauses(Cs)];
+clauses([]) -> [].
 
 %% -type clause(Clause) -> Clause.
 
-clause({clause,Line,H0,G0,B0}, Name, _Separator, HtmlFile) ->
-    file:write(HtmlFile, [span_open("clause"),
-                          ?LINE_SPAN]),
-    H1 = head(H0, Name, HtmlFile),
-    G1 = guard(G0, HtmlFile),
-    B1 = exprs(B0, HtmlFile),
-    file:write(HtmlFile, [Seperator, ?SPAN_CLOSE]),
+clause({clause,Line,H0,G0,B0}) ->
+    H1 = head(H0),
+    G1 = guard(G0),
+    B1 = exprs(B0),
     {clause,Line,H1,G1,B1}.
 
 %% -type head([Pattern]) -> [Pattern].
 
-head(Ps, Name, HtmlFile) ->
-    file:write(HtmlFile, [span("function_name", Name),
-                          ?PAREN_OPEN]),
-    patterns(Ps, HtmlFile),
-    file:write(HtmlFile, [?PAREN_CLOSE]).
+head(Ps) -> patterns(Ps).
 
 %% -type patterns([Pattern]) -> [Pattern].
 %%  These patterns are processed "sequentially" for purposes of variable
 %%  definition etc.
 
-patterns([P], Separator, HtmlFile) ->
-    P1 = pattern(P0, ?COMMA);
-patterns([P0|Ps], Separator, HtmlFile) ->
-    P1 = pattern(P0, "", HtmlFile),
-    [P1|patterns(Ps, Separator, HtmlFile)];
-patterns, Separator, HtmlFile([]) -> [].
+patterns([P0|Ps]) ->
+    P1 = pattern(P0),
+    [P1|patterns(Ps)];
+patterns([]) -> [].
 
 %% -type pattern(Pattern) -> Pattern.
 %%  N.B. Only valid patterns are included here.
 
-pattern(Pattern, HtmlFile) ->
-    pattern(Pattern, ?NO_SEPARATOR, HtmlFile).
-
-pattern({var,Line,V}, Separator, HtmlFile) ->
-    file:write(HtmlFile, [span_open("var_wrapper"),
-                          ?LINE_SPAN,
-                          span("variable", atom_to_list(V)),
-                          Separator]),
-    {var,Line,V};
-pattern({match,Line,L0,R0}, Separator, HtmlFile) ->
-    file:write(HtmlFile, [span_open("match")]),
-    L1 = pattern(L0, Separator, HtmlFile),
-    file:write(HtmlFile,
-               [span_open("match_equals"),
-                ?LINE,
-                ?EQUALS,
-                ?SPAN_CLOSE]),
-    R1 = pattern(R0, Separator, HtmlFile),
-    file:write(HtmlFile, [Separator, ?SPAN_CLOSE]),
+pattern({var,Line,V}) -> {var,Line,V};
+pattern({match,Line,L0,R0}) ->
+    L1 = pattern(L0),
+    R1 = pattern(R0),
     {match,Line,L1,R1};
-pattern({integer,Line,I}, Separator, HtmlFile) ->
-    file:write(HtmlFile, [span_open("int_wrapper"),
-                          ?LINE_SPAN,
-                          span("integer", integer_to_list(I)),
-                          ?SPAN_CLOSE,
-                          Separator]),
-    {integer,Line,I};
-%% example: $c
-pattern({char,Line,C}, Separator, HtmlFile) ->
-    file:write(HtmlFile, [span_open("char_wrapper"),
-                          ?LINE_SPAN,
-                          span("char", [C]),
-                          ?SPAN_CLOSE,
-                          Separator]),
-    {char,Line,C};
-pattern({float,Line,F}, Separator, HtmlFile) ->
-    file:write(HtmlFile, [span_open("float_wrapper"),
-                          ?LINE_SPAN,
-                          span("float", [io_lib:format("~p", [F])]),
-                          ?SPAN_CLOSE,
-                          Separator]),
-    {float,Line,F};
-pattern({atom,Line,A}, Separator, HtmlFile) ->
-    file:write(HtmlFile, [span_open("atom_wrapper"),
-                          ?LINE_SPAN,
-                          span("atom", [atom_to_list(A)]),
-                          ?SPAN_CLOSE,
-                          Separator]),
-    {atom,Line,A};
-pattern({string,Line,S}, Separator, HtmlFile) ->
-    file:write(HtmlFile, [span_open("string_wrapper"),
-                          ?LINE_SPAN,
-                          span("atom", S),
-                          ?SPAN_CLOSE,
-                          Separator]),
-    {string,Line,S};
-pattern({nil,Line}, Separator, HtmlFile) ->
-    file:write(HtmlFile, [span_open("list_wrapper"),
-                          ?LINE_SPAN,
-                          ?BRACKET_OPEN,
-                          ?BRACKET_CLOSE,
-                          ?SPAN_CLOSE,
-                          Separator]),
-    {nil,Line};
-pattern({cons,Line,H,T = {nil, _}}, Separator, HtmlFile) ->
-    file:write(HtmlFile, [span_open("list_element_wrapper"),
-                          ?LINE_SPAN]),
-    _ = pattern(H, Separator, HtmlFile),
-    file:write(HtmlFile, [?SPAN_CLOSE,
-                          ?BRACKET_CLOSE,
-                          Separator]),
-    {cons,Line,H,T};
-pattern({cons,Line,H,T}, Separator, HtmlFile) ->
-    file:write(HtmlFile, [?BRACKET_OPEN,
-                          span_open("list_element_wrapper"),
-                          ?LINE_SPAN]),
-    H = pattern(H, Separator, HtmlFile),
-    file:write(HtmlFile, [?COMMA,
-                          ?SPAN_CLOSE,
-                          Separator]),
-    T = pattern({tail_cons, T}, Separator, HtmlFile),
-    {cons,Line,H,T};
-
-pattern({tail_cons, {cons, Line,H,T}}, Separator, HtmlFile) ->
-
-    file:write(HtmlFile, [span_open("list_element_wrapper"),
-                          ?LINE_SPAN]),
-    _ = pattern(H, Separator, HtmlFile),
-    file:write(HtmlFile, [?COMMA,
-                          ?SPAN_CLOSE]),
-    _ = pattern({tail_cons, T}, Separator, HtmlFile),
-    {cons,Line,H,T};
-pattern({tail_cons, {cons,Line,H,T = {nil, _}}}, Separator, HtmlFile) ->
-    file:write(HtmlFile, [span_open("list_element_wrapper"),
-                          ?LINE_SPAN]),
-    _ = pattern(H, Separator, HtmlFile),
-    file:write(HtmlFile, [?SPAN_CLOSE,
-                          ?BRACKET_CLOSE,
-                          Separator]),
-    {cons,Line,H,T};
-
-
-pattern({tuple,Line,Ps0}, Separator, HtmlFile) ->
-    Ps1 = pattern_list(Ps0, Separator, HtmlFile),
+pattern({integer,Line,I}) -> {integer,Line,I};
+pattern({char,Line,C}) -> {char,Line,C};
+pattern({float,Line,F}) -> {float,Line,F};
+pattern({atom,Line,A}) -> {atom,Line,A};
+pattern({string,Line,S}) -> {string,Line,S};
+pattern({nil,Line}) -> {nil,Line};
+pattern({cons,Line,H0,T0}) ->
+    H1 = pattern(H0),
+    T1 = pattern(T0),
+    {cons,Line,H1,T1};
+pattern({tuple,Line,Ps0}) ->
+    Ps1 = pattern_list(Ps0),
     {tuple,Line,Ps1};
 %%pattern({struct,Line,Tag,Ps0}) ->
 %%    Ps1 = pattern_list(Ps0),
 %%    {struct,Line,Tag,Ps1};
-pattern({record,Line,Name,Pfs0}, Separator, HtmlFile) ->
-    Pfs1 = pattern_fields(Pfs0, Separator, HtmlFile),
+pattern({record,Line,Name,Pfs0}) ->
+    Pfs1 = pattern_fields(Pfs0),
     {record,Line,Name,Pfs1};
-pattern({record_index,Line,Name,Field0}, Separator, HtmlFile) ->
-    Field1 = pattern(Field0, Separator, HtmlFile),
+pattern({record_index,Line,Name,Field0}) ->
+    Field1 = pattern(Field0),
     {record_index,Line,Name,Field1};
-pattern({record_field,Line,Rec0,Name,Field0}, _Separator, _HtmlFile) ->
+pattern({record_field,Line,Rec0,Name,Field0}) ->
     Rec1 = expr(Rec0),
     Field1 = expr(Field0),
     {record_field,Line,Rec1,Name,Field1};
-pattern({record_field,Line,Rec0,Field0}, _Separator, _HtmlFile) ->
+pattern({record_field,Line,Rec0,Field0}) ->
     Rec1 = expr(Rec0),
     Field1 = expr(Field0),
     {record_field,Line,Rec1,Field1};
-pattern({bin,Line,Fs}, _Separator, _HtmlFile) ->
+pattern({bin,Line,Fs}) ->
     Fs2 = pattern_grp(Fs),
     {bin,Line,Fs2};
-pattern({op,Line,Op,A}, _Separator, _HtmlFile) ->
+pattern({op,Line,Op,A}) ->
     {op,Line,Op,A};
-pattern({op,Line,Op,L,R}, _Separator, _HtmlFile) ->
+pattern({op,Line,Op,L,R}) ->
     {op,Line,Op,L,R}.
 
 pattern_grp([{bin_element,L1,E1,S1,T1} | Fs]) ->
@@ -412,38 +272,38 @@ bit_types([{Atom, Integer} | Rest]) when is_atom(Atom), is_integer(Integer) ->
 %%  These patterns are processed "in parallel" for purposes of variable
 %%  definition etc.
 
-pattern_list([P0|Ps], Separator, HtmlFile) ->
-    P1 = pattern(P0, HtmlFile),
-    [P1|pattern_list(Ps, Separator, HtmlFile)];
-pattern_list([], _Separator, _HtmlFile) -> [].
+pattern_list([P0|Ps]) ->
+    P1 = pattern(P0),
+    [P1|pattern_list(Ps)];
+pattern_list([]) -> [].
 
 %% -type pattern_fields([Field]) -> [Field].
 %%  N.B. Field names are full expressions here but only atoms are allowed
 %%  by the *linter*!.
 
-pattern_fields([{record_field,Lf,{atom,La,F},P0}|Pfs], Separator, HtmlFile) ->
-    P1 = pattern(P0, Separator, HtmlFile),
-    [{record_field,Lf,{atom,La,F},P1}|pattern_fields(Pfs, Separator, HtmlFile)];
-pattern_fields([{record_field,Lf,{var,La,'_'},P0}|Pfs], Separator, HtmlFile) ->
-    P1 = pattern(P0, Separator, HtmlFile),
-    [{record_field,Lf,{var,La,'_'},P1}|pattern_fields(Pfs, Separator, HtmlFile)];
-pattern_fields([], _Separator, _HtmlFile) -> [].
+pattern_fields([{record_field,Lf,{atom,La,F},P0}|Pfs]) ->
+    P1 = pattern(P0),
+    [{record_field,Lf,{atom,La,F},P1}|pattern_fields(Pfs)];
+pattern_fields([{record_field,Lf,{var,La,'_'},P0}|Pfs]) ->
+    P1 = pattern(P0),
+    [{record_field,Lf,{var,La,'_'},P1}|pattern_fields(Pfs)];
+pattern_fields([]) -> [].
 
 %% -type guard([GuardTest]) -> [GuardTest].
 
-guard([G0|Gs], HtmlFile) when is_list(G0) ->
-    [guard0(G0, HtmlFile) | guard(Gs, HtmlFile)];
-guard(L, HtmlFile) ->
-    guard0(L, HtmlFile).
+guard([G0|Gs]) when is_list(G0) ->
+    [guard0(G0) | guard(Gs)];
+guard(L) ->
+    guard0(L).
 
-guard0([G0|Gs], HtmlFile) ->
+guard0([G0|Gs]) ->
     G1 =  guard_test(G0),
-    [G1|guard0(Gs, HtmlFile)];
-guard0([], _HtmlFile) -> [].
+    [G1|guard0(Gs)];
+guard0([]) -> [].
 
 guard_test(Expr={call,Line,{atom,La,F},As0}) ->
     case erl_internal:type_test(F, length(As0)) of
-	true ->
+	true -> 
 	    As1 = gexpr_list(As0),
 	    {call,Line,{atom,La,F},As1};
 	_ ->
@@ -489,7 +349,7 @@ gexpr({call,Line,{atom,La,F},As0}) ->
 % Guard bif's can be remote, but only in the module erlang...
 gexpr({call,Line,{remote,La,{atom,Lb,erlang},{atom,Lc,F}},As0}) ->
     case erl_internal:guard_bif(F, length(As0)) or
-	 erl_internal:arith_op(F, length(As0)) or
+	 erl_internal:arith_op(F, length(As0)) or 
 	 erl_internal:comp_op(F, length(As0)) or
 	 erl_internal:bool_op(F, length(As0)) of
 	true -> As1 = gexpr_list(As0),
@@ -499,7 +359,7 @@ gexpr({bin,Line,Fs}) ->
     Fs2 = pattern_grp(Fs),
     {bin,Line,Fs2};
 gexpr({op,Line,Op,A0}) ->
-    case erl_internal:arith_op(Op, 1) or
+    case erl_internal:arith_op(Op, 1) or 
 	 erl_internal:bool_op(Op, 1) of
 	true -> A1 = gexpr(A0),
 		{op,Line,Op,A1}
@@ -511,7 +371,7 @@ gexpr({op,Line,Op,L0,R0}) when Op =:= 'andalso'; Op =:= 'orelse' ->
     {op,Line,Op,L1,R1};
 gexpr({op,Line,Op,L0,R0}) ->
     case erl_internal:arith_op(Op, 2) or
-	  erl_internal:bool_op(Op, 2) or
+	  erl_internal:bool_op(Op, 2) or 
 	  erl_internal:comp_op(Op, 2) of
 	true ->
 	    L1 = gexpr(L0),
@@ -745,3 +605,33 @@ span_open(Class) ->
     ["<span class=\"",
      Class,
      "</span>"].
+
+parse_symbol('(') ->
+    span("paren", "(");
+parse_symbol(')') ->
+    span("paren", ")");
+parse_symbol('{') ->
+    span("brace", "{");
+parse_symbol('}') ->
+    span("brace", "}");
+parse_symbol('[') ->
+    span("bracket", "[");
+parse_symbol(']') ->
+    span("bracket", "]");
+parse_symbol('.') ->
+    span("period", ".");
+parse_symbol(',') ->
+    span("comma", ",");
+parse_symbol(';') ->
+    span("semicolon", ";");
+parse_symbol('/') ->
+    span("slash", "/");
+parse_symbol('-') ->
+    span("dash", "-");
+parse_symbol('=') ->
+    span("equals", "=");
+parse_symbol(Atom) ->
+    span(atom_to_list(Atom)).
+
+line(Line) ->
+    span("line", integer_to_list(Line)).
