@@ -94,46 +94,33 @@ html(Forms) when is_list(Forms) ->
 
 %% First the various attributes.
 html({attribute,Line,module,Mod}) ->
-    ["<div>",
-     ?LINE_SPAN,
-     "<span class=\"module\">",
-     atom_to_list(Mod),
-     "</span>"
-     "</div>"];
+    [line(Line),
+     '-', 'module', '(', span("module", atom_to_list(Mod)), ')', '.'];
 html({attribute,Line,file,{File,Line}}) ->	%This is valid anywhere.
-    ["<div>",
-     line(Line),
-     "<span class=\"file\">",
-     File,
-     "</span>"
-     "</div>"];
+    [line(Line),
+     '-', 'file', '(', span("file", File), ')', '.'];
 html({attribute,Line,export,Es0}) ->
-    [div_([line(Line),
-           span("export_block")
-                ['-', 'export', '[', farity_list(Es0), ']']), ]);
+    [line(Line),
+     '-', 'export', '[', farity_list(Es0), ']'];
 html({attribute,Line,import,{Mod,Is0}}) ->
     ModuleSpan = span("module", atom_to_list(Mod)),
-    [span_open("import_line"),
-     line(Line),
-     '-', 'import', ',', ModuleSpan, '(', '[', farity_list(Is0), ']', ')',
-     span_close()];
+    [line(Line),
+     '-', 'import', ',', ModuleSpan, '(', '[', farity_list(Is0), ']', ')', '.'];
 html({attribute,Line,compile,C}) ->
-    ["<div>",
-     line(Line),
-     '-', 'compile', '(', span("compile_option", atom_to_list(C)), ')', '.',
-     "</div>"];
+    [line(Line),
+     '-', 'compile', '(', span("compile_option", atom_to_list(C)), ')', '.'];
 html({attribute,Line,record,{Name,Defs}}) ->
-    [div_open("record_block"),
-     ?LINE_SPAN,
+    [line(Line),
      '-', 'record', '(', span("record_name", atom_to_list(Name)), ',', '{', 
      record_defs(Defs),
      '}', ')', '.'];
-html({attribute,Line,asm,{function,N,A,Code}}) ->
-    "";
-html({attribute,Line,Attr,Val}) ->		%The general attribute.
-    "";
-html({function,Line,Name0,Arity0,Clauses0}) ->
-    function(Name0, Arity0, Clauses0);
+html({attribute,Line,asm,{function,_N,_A,_Code}}) ->
+    line(Line);
+html({attribute,Line,_Attr,_Val}) ->		%The general attribute.
+    line(Line);
+html({function,Line,Name,_Arity,Clauses}) ->
+    [line(Line),
+     separate(';', lists:map(fun(Clause) -> clause(Name, Clause) end, Clauses)), '.'];
 % Mnemosyne, ignore...
 html({rule,Line,Name,Arity,Body}) ->
     {rule,Line,Name,Arity,Body}; % Dont dig into this
@@ -147,263 +134,148 @@ html({eof,Line}) ->
 
 %% -type farity_list([Farity]) -> [Farity] when Farity <= {atom(),integer()}.
 
-farity_list([{Name,Arity}|Fas]) ->
-    [{Name,Arity}|farity_list(Fas)];
-farity_list([]) -> [].
+farity_list(FunArities) ->
+    separate(lists:map(fun farity/1, FunArities)).
+
+farity({Name, Arity}) ->
+    span("function", [atom_to_list(Name), '/', integer_to_list(Arity)]).
 
 %% -type record_defs([RecDef]) -> [RecDef].
 %%  N.B. Field names are full expressions here but only atoms are allowed
 %%  by the *parser*!
 
-record_defs([{record_field,Line,{atom,La,A},Val0}|Is]) ->
-    Val1 = expr(Val0),
-    [{record_field,Line,{atom,La,A},Val1}|record_defs(Is)];
-record_defs([{record_field,Line,{atom,La,A}}|Is]) ->
-    [{record_field,Line,{atom,La,A}}|record_defs(Is)];
-record_defs([]) -> [].
+record_defs(Defs) ->
+    separate(lists:map(fun record_def/1, Defs)).
 
-%% -type function(atom(), integer(), [Clause]) -> {atom(),integer(),[Clause]}.
+record_def({record_field,Line,{atom,_La,A},Val}) ->
+    [line(Line),
+     span("record_field", atom_to_list(A)), '=', expr(Val)];
+record_def({record_field,Line,{atom,_La,A}}) ->
+    [line(Line),
+     span("record_field", atom_to_list(A))].
 
-function(Name, Arity, Clauses0) ->
-    Clauses1 = clauses(Clauses0),
-    {Name,Arity,Clauses1}.
-
-%% -type clauses([Clause]) -> [Clause].
-
-clauses([C0|Cs]) ->
-    C1 = clause(C0),
-    [C1|clauses(Cs)];
-clauses([]) -> [].
-
-%% -type clause(Clause) -> Clause.
-
-clause({clause,Line,H0,G0,B0}) ->
-    H1 = head(H0),
-    G1 = guard(G0),
-    B1 = exprs(B0),
-    {clause,Line,H1,G1,B1}.
+clause(Name, {clause,Line,Head,GuardGroups,Body}) ->
+    [line(Line),
+     span("function", atom_to_list(Name)),
+     head(Head),
+     separate(';', lists:map(fun guard_group/1, GuardGroups)),
+     '->',
+     separate(lists:map(fun expr/1, Body)),
+     '.'].
 
 %% -type head([Pattern]) -> [Pattern].
 
-head(Ps) -> patterns(Ps).
-
-%% -type patterns([Pattern]) -> [Pattern].
-%%  These patterns are processed "sequentially" for purposes of variable
-%%  definition etc.
-
-patterns([P0|Ps]) ->
-    P1 = pattern(P0),
-    [P1|patterns(Ps)];
-patterns([]) -> [].
+head(Patterns) ->
+    separate(lists:map(fun pattern/1, Patterns)).
 
 %% -type pattern(Pattern) -> Pattern.
 %%  N.B. Only valid patterns are included here.
 
-pattern({var,Line,V}) -> {var,Line,V};
-pattern({match,Line,L0,R0}) ->
-    L1 = pattern(L0),
-    R1 = pattern(R0),
-    {match,Line,L1,R1};
-pattern({integer,Line,I}) -> {integer,Line,I};
-pattern({char,Line,C}) -> {char,Line,C};
-pattern({float,Line,F}) -> {float,Line,F};
-pattern({atom,Line,A}) -> {atom,Line,A};
-pattern({string,Line,S}) -> {string,Line,S};
-pattern({nil,Line}) -> {nil,Line};
-pattern({cons,Line,H0,T0}) ->
-    H1 = pattern(H0),
-    T1 = pattern(T0),
-    {cons,Line,H1,T1};
-pattern({tuple,Line,Ps0}) ->
-    Ps1 = pattern_list(Ps0),
-    {tuple,Line,Ps1};
-%%pattern({struct,Line,Tag,Ps0}) ->
-%%    Ps1 = pattern_list(Ps0),
-%%    {struct,Line,Tag,Ps1};
-pattern({record,Line,Name,Pfs0}) ->
-    Pfs1 = pattern_fields(Pfs0),
-    {record,Line,Name,Pfs1};
-pattern({record_index,Line,Name,Field0}) ->
-    Field1 = pattern(Field0),
-    {record_index,Line,Name,Field1};
-pattern({record_field,Line,Rec0,Name,Field0}) ->
-    Rec1 = expr(Rec0),
-    Field1 = expr(Field0),
-    {record_field,Line,Rec1,Name,Field1};
-pattern({record_field,Line,Rec0,Field0}) ->
-    Rec1 = expr(Rec0),
-    Field1 = expr(Field0),
-    {record_field,Line,Rec1,Field1};
-pattern({bin,Line,Fs}) ->
-    Fs2 = pattern_grp(Fs),
-    {bin,Line,Fs2};
+pattern({var,Line,V}) ->
+    [line(Line),
+     atom_to_list(V)];
+pattern({match,Line,Left,Right}) ->
+    [line(Line),
+     span("match", [pattern(Left), '=', pattern(Right)])];
+pattern({integer,Line,I}) ->
+    [line(Line),
+     span("integer", integer_to_list(I))];
+pattern({char,Line,C}) ->
+    [line(Line),
+     span("char", [C])];
+pattern({float,Line,F}) ->
+    [line(Line),
+     span("float", io_lib:format("~w", [F]))];
+pattern({atom,Line,A}) ->
+    [line(Line),
+     span("atom", atom_to_list(A))];
+pattern({string,Line,S}) ->
+    [line(Line),
+     span("string", S)];
+pattern({nil,Line}) ->
+    [line(Line),
+     span("list", ['[', ']'])];
+pattern({tuple,Line,Patterns}) ->
+    [line(Line),
+     span("tuple", ['{', map_separate(fun pattern/1, Patterns), '}'])];
+%% There's a special case for all cons's after the first: {tail, _}
+%% so this is a list of one item.
+pattern({cons,Line,Head,{nil, _}}) ->
+    [line(Line),
+     '[', pattern(Head), ']'];
+pattern({cons,Line,Head,Tail}) ->
+    [line(Line),
+     '[', separate([pattern(Head) | pattern({tail, Tail})]), ']'];
+pattern({tail, {cons, Line, Head, {nil, _}}}) ->
+    [line(Line),
+     [pattern(Head)]];
+pattern({tail, {cons, Line, Head, Tail}}) ->
+    [line(Line),
+     [pattern(Head) | pattern({tail, Tail})]];
+pattern({record,Line,Name,PatternFields}) ->
+    [line(Line),
+     ['#', span("atom", atom_to_list(Name)), '{',
+      map_separate(fun pattern_field/1, PatternFields),
+      '}']];
+pattern({record_index,Line,Name,Field}) ->
+    [line(Line),
+     [span("record", ['#', atom_to_list(Name)]), '.', pattern(Field)]];
+pattern({record_field,Line,Expression,RecName,Field}) ->
+    [line(Line),
+     [expr(Expression), '#', span("record", atom_to_list(RecName)), '.', expr(Field)]];
+% How does this happen? (Foo).bar ?
+%pattern({record_field,Line,Rec0,Field0}) ->
+    %Rec1 = expr(Rec0),
+    %Field1 = expr(Field0);
+pattern({bin,Line,BinElems}) ->
+    [line(Line),
+     ['<<', separate(lists:map(fun bin_element/1, BinElems)), '>>']];
 pattern({op,Line,Op,A}) ->
-    {op,Line,Op,A};
+    [line(Line),
+     span("operator", atom_to_list(Op)), pattern(A)];
 pattern({op,Line,Op,L,R}) ->
-    {op,Line,Op,L,R}.
+    [line(Line),
+     pattern(L), span("operator", atom_to_list(Op)), pattern(R)].
 
-pattern_grp([{bin_element,L1,E1,S1,T1} | Fs]) ->
-    S2 = case S1 of
+bin_element({bin_element,Line,Expression,Size1,Type1}) ->
+    Size2 = case Size1 of
 	     default ->
-		 default;
+		 "";
 	     _ ->
-		 expr(S1)
+		 [':', expr(Size1)]
 	 end,
-    T2 = case T1 of
+    Type2 = case Type1 of
 	     default ->
-		 default;
+		 "";
 	     _ ->
-		 bit_types(T1)
+		 ['/', separate('-', lists:map(fun bit_type/1, Type1))]
 	 end,
-    [{bin_element,L1,expr(E1),S2,T2} | pattern_grp(Fs)];
-pattern_grp([]) ->
-    [].
+    [line(Line),
+     expr(Expression), Size2, Type2].
 
-bit_types([]) ->
-    [];
-bit_types([Atom | Rest]) when is_atom(Atom) ->
-    [Atom | bit_types(Rest)];
-bit_types([{Atom, Integer} | Rest]) when is_atom(Atom), is_integer(Integer) ->
-    [{Atom, Integer} | bit_types(Rest)].
+bit_type(Atom) when is_atom(Atom) ->
+    span("atom"), atom_to_list(Atom);
+bit_type({Atom, Integer}) when is_atom(Atom), is_integer(Integer) ->
+    [span("atom", atom_to_list(Atom)), ':', span("integer", integer_to_list(Integer))].
 
-
-
-%% -type pattern_list([Pattern]) -> [Pattern].
-%%  These patterns are processed "in parallel" for purposes of variable
-%%  definition etc.
-
-pattern_list([P0|Ps]) ->
-    P1 = pattern(P0),
-    [P1|pattern_list(Ps)];
-pattern_list([]) -> [].
 
 %% -type pattern_fields([Field]) -> [Field].
 %%  N.B. Field names are full expressions here but only atoms are allowed
 %%  by the *linter*!.
 
-pattern_fields([{record_field,Lf,{atom,La,F},P0}|Pfs]) ->
-    P1 = pattern(P0),
-    [{record_field,Lf,{atom,La,F},P1}|pattern_fields(Pfs)];
-pattern_fields([{record_field,Lf,{var,La,'_'},P0}|Pfs]) ->
-    P1 = pattern(P0),
-    [{record_field,Lf,{var,La,'_'},P1}|pattern_fields(Pfs)];
-pattern_fields([]) -> [].
+pattern_field({record_field,Lf,{atom,_La,F},Pattern}) ->
+    [line(Lf),
+     span(F), '=', pattern(Pattern)];
+pattern_field({record_field,Lf,{var,_La,'_'},Pattern}) ->
+    [line(Lf),
+     '_', '=', pattern(Pattern)].
 
-%% -type guard([GuardTest]) -> [GuardTest].
-
-guard([G0|Gs]) when is_list(G0) ->
-    [guard0(G0) | guard(Gs)];
-guard(L) ->
-    guard0(L).
-
-guard0([G0|Gs]) ->
-    G1 =  guard_test(G0),
-    [G1|guard0(Gs)];
-guard0([]) -> [].
-
-guard_test(Expr={call,Line,{atom,La,F},As0}) ->
-    case erl_internal:type_test(F, length(As0)) of
-	true -> 
-	    As1 = gexpr_list(As0),
-	    {call,Line,{atom,La,F},As1};
-	_ ->
-	    gexpr(Expr)
-    end;
-guard_test(Any) ->
-    gexpr(Any).
-
-%% Before R9, there were special rules regarding the expressions on
-%% top level in guards. Those limitations are now lifted - therefore
-%% there is no need for a special clause for the toplevel expressions.
-%% -type gexpr(GuardExpr) -> GuardExpr.
-
-gexpr({var,Line,V}) -> {var,Line,V};
-gexpr({integer,Line,I}) -> {integer,Line,I};
-gexpr({char,Line,C}) -> {char,Line,C};
-gexpr({float,Line,F}) -> {float,Line,F};
-gexpr({atom,Line,A}) -> {atom,Line,A};
-gexpr({string,Line,S}) -> {string,Line,S};
-gexpr({nil,Line}) -> {nil,Line};
-gexpr({cons,Line,H0,T0}) ->
-    H1 = gexpr(H0),
-    T1 = gexpr(T0),				%They see the same variables
-    {cons,Line,H1,T1};
-gexpr({tuple,Line,Es0}) ->
-    Es1 = gexpr_list(Es0),
-    {tuple,Line,Es1};
-gexpr({record_index,Line,Name,Field0}) ->
-    Field1 = gexpr(Field0),
-    {record_index,Line,Name,Field1};
-gexpr({record_field,Line,Rec0,Name,Field0}) ->
-    Rec1 = gexpr(Rec0),
-    Field1 = gexpr(Field0),
-    {record_field,Line,Rec1,Name,Field1};
-gexpr({record,Line,Name,Inits0}) ->
-    Inits1 = grecord_inits(Inits0),
-    {record,Line,Name,Inits1};
-gexpr({call,Line,{atom,La,F},As0}) ->
-    case erl_internal:guard_bif(F, length(As0)) of
-	true -> As1 = gexpr_list(As0),
-		{call,Line,{atom,La,F},As1}
-    end;
-% Guard bif's can be remote, but only in the module erlang...
-gexpr({call,Line,{remote,La,{atom,Lb,erlang},{atom,Lc,F}},As0}) ->
-    case erl_internal:guard_bif(F, length(As0)) or
-	 erl_internal:arith_op(F, length(As0)) or 
-	 erl_internal:comp_op(F, length(As0)) or
-	 erl_internal:bool_op(F, length(As0)) of
-	true -> As1 = gexpr_list(As0),
-		{call,Line,{remote,La,{atom,Lb,erlang},{atom,Lc,F}},As1}
-    end;
-gexpr({bin,Line,Fs}) ->
-    Fs2 = pattern_grp(Fs),
-    {bin,Line,Fs2};
-gexpr({op,Line,Op,A0}) ->
-    case erl_internal:arith_op(Op, 1) or 
-	 erl_internal:bool_op(Op, 1) of
-	true -> A1 = gexpr(A0),
-		{op,Line,Op,A1}
-    end;
-gexpr({op,Line,Op,L0,R0}) when Op =:= 'andalso'; Op =:= 'orelse' ->
-    %% R11B: andalso/orelse are now allowed in guards.
-    L1 = gexpr(L0),
-    R1 = gexpr(R0),			%They see the same variables
-    {op,Line,Op,L1,R1};
-gexpr({op,Line,Op,L0,R0}) ->
-    case erl_internal:arith_op(Op, 2) or
-	  erl_internal:bool_op(Op, 2) or 
-	  erl_internal:comp_op(Op, 2) of
-	true ->
-	    L1 = gexpr(L0),
-	    R1 = gexpr(R0),			%They see the same variables
-	    {op,Line,Op,L1,R1}
-    end.
-
-%% -type gexpr_list([GuardExpr]) -> [GuardExpr].
-%%  These expressions are processed "in parallel" for purposes of variable
-%%  definition etc.
-
-gexpr_list([E0|Es]) ->
-    E1 = gexpr(E0),
-    [E1|gexpr_list(Es)];
-gexpr_list([]) -> [].
-
-grecord_inits([{record_field,Lf,{atom,La,F},Val0}|Is]) ->
-    Val1 = gexpr(Val0),
-    [{record_field,Lf,{atom,La,F},Val1}|grecord_inits(Is)];
-grecord_inits([{record_field,Lf,{var,La,'_'},Val0}|Is]) ->
-    Val1 = gexpr(Val0),
-    [{record_field,Lf,{var,La,'_'},Val1}|grecord_inits(Is)];
-grecord_inits([]) -> [].
+guard_group(GuardGroup) ->
+    separate(lists:map(fun expr/1, GuardGroup)).
 
 %% -type exprs([Expression]) -> [Expression].
 %%  These expressions are processed "sequentially" for purposes of variable
 %%  definition etc.
-
-exprs([E0|Es]) ->
-    E1 = expr(E0),
-    [E1|exprs(Es)];
-exprs([]) -> [].
 
 %% -type expr(Expression) -> Expression.
 
@@ -429,9 +301,6 @@ expr({bc,Line,E0,Qs0}) ->
 expr({tuple,Line,Es0}) ->
     Es1 = expr_list(Es0),
     {tuple,Line,Es1};
-%%expr({struct,Line,Tag,Es0}) ->
-%%    Es1 = pattern_list(Es0),
-%%    {struct,Line,Tag,Es1};
 expr({record_index,Line,Name,Field0}) ->
     Field1 = expr(Field0),
     {record_index,Line,Name,Field1};
@@ -583,13 +452,13 @@ fun_clauses([C0|Cs]) ->
     [C1|fun_clauses(Cs)];
 fun_clauses([]) -> [].
 
-div_open(Class) ->
-    ["<div class\"",
-     Class,
-     "\">"].
+%div_open(Class) ->
+    %["<div class\"",
+     %Class,
+     %"\">"].
 
-div_close() ->
-    "</div>".
+%div_close() ->
+    %"</div>".
 
 span(Keyword) ->
     span(Keyword, Keyword).
@@ -601,10 +470,10 @@ span(Class, Text) ->
       Text,
       "</span>"].
 
-span_open(Class) ->
-    ["<span class=\"",
-     Class,
-     "</span>"].
+%span_open(Class) ->
+    %["<span class=\"",
+     %Class,
+     %"</span>"].
 
 parse_symbol('(') ->
     span("paren", "(");
@@ -634,4 +503,14 @@ parse_symbol(Atom) ->
     span(atom_to_list(Atom)).
 
 line(Line) ->
-    span("line", integer_to_list(Line)).
+    {line, Line}.
+    %span("line", integer_to_list(Line)).
+
+separate(List) when is_list(List) ->
+    separate(',', List).
+
+separate(Separator, [Hd | Tl]) ->
+    [Hd | [[Separator,E] || E <- Tl]].
+
+map_separate(Fun, List) ->
+    separate(',', lists:map(Fun, List)).
