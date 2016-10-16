@@ -281,7 +281,7 @@ guard_group(GuardGroup) ->
 
 %% -type expr(Expression) -> Expression.
 
-expr({lc,Line,E0,Qs0}) ->
+expr({lc,Line,Result,Generators}) ->
     Qs1 = lc_bc_quals(Qs0),
     E1 = expr(E0),
     {lc,Line,E1,Qs1};
@@ -376,16 +376,19 @@ expr(X) ->
 %% -type lc_bc_quals([Qualifier]) -> [Qualifier].
 %%  Allow filters to be both guard tests and general expressions.
 
+%% This is a list of generators _or_ filters
+%% which are simply expressions
+%% A generator is a target and a source
 lc_bc_quals([{generate,Line,P0,E0}|Qs]) ->
-    E1 = expr(E0),
-    P1 = pattern(P0),
+    P1 = pattern(P0), %% <- Target
+    E1 = expr(E0), %% <- Source
     [{generate,Line,P1,E1}|lc_bc_quals(Qs)];
 lc_bc_quals([{b_generate,Line,P0,E0}|Qs]) ->
     E1 = expr(E0),
     P1 = pattern(P0),
     [{b_generate,Line,P1,E1}|lc_bc_quals(Qs)];
 lc_bc_quals([E0|Qs]) ->
-    E1 = expr(E0),
+    E1 = expr(E0), %% <- filter expression
     [E1|lc_bc_quals(Qs)];
 lc_bc_quals([]) -> [].
 
