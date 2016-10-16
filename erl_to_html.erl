@@ -138,7 +138,7 @@ farity_list(FunArities) ->
     separate(lists:map(fun farity/1, FunArities)).
 
 farity({Name, Arity}) ->
-    span("function", [atom_to_list(Name), '/', integer_to_list(Arity)]).
+    [function(Name), '/', arity(Arity)].
 
 %% -type record_defs([RecDef]) -> [RecDef].
 %%  N.B. Field names are full expressions here but only atoms are allowed
@@ -154,6 +154,9 @@ record_def({record_field,Line,{atom,_La,A}}) ->
     [line(Line),
      span("record_field", atom_to_list(A))].
 
+clause({clause, Line, Head, GuardGroups, Body}) ->
+    clause("", {clause, Line, Head, GuardGroups, Body}).
+
 clause(Name, {clause,Line,Head,GuardGroups,Body}) ->
     [line(Line),
      span("function", atom_to_list(Name)),
@@ -166,7 +169,7 @@ clause(Name, {clause,Line,Head,GuardGroups,Body}) ->
 %% -type head([Pattern]) -> [Pattern].
 
 head(Patterns) ->
-    separate(lists:map(fun pattern/1, Patterns)).
+    ['(', separate(lists:map(fun pattern/1, Patterns)), ')'].
 
 %% -type pattern(Pattern) -> Pattern.
 %%  N.B. Only valid patterns are included here.
@@ -179,7 +182,7 @@ pattern({match,Line,Left,Right}) ->
      span("match", [pattern(Left), '=', pattern(Right)])];
 pattern({integer,Line,I}) ->
     [line(Line),
-     span("integer", integer_to_list(I))];
+     integer(I)];
 pattern({char,Line,C}) ->
     [line(Line),
      span("char", [C])];
@@ -254,10 +257,9 @@ bin_element({bin_element,Line,Expression,Size1,Type1}) ->
      expr(Expression), Size2, Type2].
 
 bit_type(Atom) when is_atom(Atom) ->
-    span("atom"), atom_to_list(Atom);
+    span(Atom);
 bit_type({Atom, Integer}) when is_atom(Atom), is_integer(Integer) ->
-    [span("atom", atom_to_list(Atom)), ':', span("integer", integer_to_list(Integer))].
-
+    [atom(Atom), ':', integer(Integer)].
 
 %% -type pattern_fields([Field]) -> [Field].
 %%  N.B. Field names are full expressions here but only atoms are allowed
@@ -279,17 +281,6 @@ guard_group(GuardGroup) ->
 
 %% -type expr(Expression) -> Expression.
 
-expr({var,Line,V}) -> {var,Line,V};
-expr({integer,Line,I}) -> {integer,Line,I};
-expr({float,Line,F}) -> {float,Line,F};
-expr({atom,Line,A}) -> {atom,Line,A};
-expr({string,Line,S}) -> {string,Line,S};
-expr({char,Line,C}) -> {char,Line,C};
-expr({nil,Line}) -> {nil,Line};
-expr({cons,Line,H0,T0}) ->
-    H1 = expr(H0),
-    T1 = expr(T0),				%They see the same variables
-    {cons,Line,H1,T1};
 expr({lc,Line,E0,Qs0}) ->
     Qs1 = lc_bc_quals(Qs0),
     E1 = expr(E0),
@@ -298,68 +289,56 @@ expr({bc,Line,E0,Qs0}) ->
     Qs1 = lc_bc_quals(Qs0),
     E1 = expr(E0),
     {bc,Line,E1,Qs1};
-expr({tuple,Line,Es0}) ->
-    Es1 = expr_list(Es0),
-    {tuple,Line,Es1};
-expr({record_index,Line,Name,Field0}) ->
-    Field1 = expr(Field0),
-    {record_index,Line,Name,Field1};
-expr({record,Line,Name,Inits0}) ->
-    Inits1 = record_inits(Inits0),
-    {record,Line,Name,Inits1};
-expr({record_field,Line,Rec0,Name,Field0}) ->
-    Rec1 = expr(Rec0),
-    Field1 = expr(Field0),
-    {record_field,Line,Rec1,Name,Field1};
-expr({record,Line,Rec0,Name,Upds0}) ->
-    Rec1 = expr(Rec0),
-    Upds1 = record_updates(Upds0),
-    {record,Line,Rec1,Name,Upds1};
-expr({record_field,Line,Rec0,Field0}) ->
-    Rec1 = expr(Rec0),
-    Field1 = expr(Field0),
-    {record_field,Line,Rec1,Field1};
-expr({block,Line,Es0}) ->
-    %% Unfold block into a sequence.
-    Es1 = exprs(Es0),
-    {block,Line,Es1};
-expr({'if',Line,Cs0}) ->
-    Cs1 = icr_clauses(Cs0),
-    {'if',Line,Cs1};
-expr({'case',Line,E0,Cs0}) ->
-    E1 = expr(E0),
-    Cs1 = icr_clauses(Cs0),
-    {'case',Line,E1,Cs1};
-expr({'receive',Line,Cs0}) ->
-    Cs1 = icr_clauses(Cs0),
-    {'receive',Line,Cs1};
-expr({'receive',Line,Cs0,To0,ToEs0}) ->
-    To1 = expr(To0),
-    ToEs1 = exprs(ToEs0),
-    Cs1 = icr_clauses(Cs0),
-    {'receive',Line,Cs1,To1,ToEs1};
-expr({'try',Line,Es0,Scs0,Ccs0,As0}) ->
-    Es1 = exprs(Es0),
-    Scs1 = icr_clauses(Scs0),
-    Ccs1 = icr_clauses(Ccs0),
-    As1 = exprs(As0),
-    {'try',Line,Es1,Scs1,Ccs1,As1};
+expr({block,Line,Expressions}) ->
+    [line(Line),
+     'begin', map_separate(fun expr/1, Expressions), 'end'];
+expr({'if',Line,Clauses}) ->
+    [line(Line),
+     'if',
+     map_separate(fun clause/1, Clauses),
+     'end'];
+expr({'case',Line,Expression,Clauses}) ->
+    [line(Line),
+     'case', expr(Expression), 'of',
+     map_separate(fun clause/1, Clauses),
+     'end'];
+expr({'receive',Line,Clauses}) ->
+    [line(Line),
+     'receive', map_separate(fun clause/1, Clauses),
+     'end'];
+expr({'receive',Line,Clauses,AfterWait,AfterExpressions}) ->
+    [line(Line),
+     'receive', map_separate(fun clause/1, Clauses),
+     'after', integer(AfterWait), '->',
+     map_separate(fun expr/1, AfterExpressions),
+     'end'];
+expr({'try',Line,Expressions,_WhatIsThis,CatchClauses,AfterExpressions}) ->
+    [line(Line),
+     'try', map_separate(fun expr/1, Expressions),
+     'catch', map_separate(';', fun clause/1, CatchClauses),
+     'after', map_separate(fun expr/1, AfterExpressions),
+     'end'];
 expr({'fun',Line,Body}) ->
     case Body of
-	{clauses,Cs0} ->
-	    Cs1 = fun_clauses(Cs0),
-	    {'fun',Line,{clauses,Cs1}};
-	{function,F,A} ->
-	    {'fun',Line,{function,F,A}};
+	{clauses,Clauses} ->
+        [line(Line),
+         'fun',
+         map_separate(fun(Clause) -> clause("", Clause) end, Clauses)];
+	{function,Fun,Arity} ->
+        [line(Line),
+         function(Fun), '/', arity(Arity)];
 	{function,M,F,A} when is_atom(M), is_atom(F), is_integer(A) ->
-	    %% R10B-6: fun M:F/A. (Backward compatibility)
-	    {'fun',Line,{function,M,F,A}};
+        [line(Line),
+         module(M), ':', function(F), '/', arity(A)];
 	{function,M0,F0,A0} ->
 	    %% R15: fun M:F/A with variables.
 	    M = expr(M0),
 	    F = expr(F0),
 	    A = expr(A0),
-	    {'fun',Line,{function,M,F,A}}
+        [line(Line),
+         span("module", M),
+         ':', span("function", F),
+         '/', span("arity", A)]
     end;
 expr({call,Line,F0,As0}) ->
     %% N.B. If F an atom then call to local function or BIF, if F a
@@ -390,44 +369,9 @@ expr({op,Line,Op,L0,R0}) ->
 expr({remote,Line,M0,F0}) ->
     M1 = expr(M0),
     F1 = expr(F0),
-    {remote,Line,M1,F1}.
-
-%% -type expr_list([Expression]) -> [Expression].
-%%  These expressions are processed "in parallel" for purposes of variable
-%%  definition etc.
-
-expr_list([E0|Es]) ->
-    E1 = expr(E0),
-    [E1|expr_list(Es)];
-expr_list([]) -> [].
-
-%% -type record_inits([RecordInit]) -> [RecordInit].
-%%  N.B. Field names are full expressions here but only atoms are allowed
-%%  by the *linter*!.
-
-record_inits([{record_field,Lf,{atom,La,F},Val0}|Is]) ->
-    Val1 = expr(Val0),
-    [{record_field,Lf,{atom,La,F},Val1}|record_inits(Is)];
-record_inits([{record_field,Lf,{var,La,'_'},Val0}|Is]) ->
-    Val1 = expr(Val0),
-    [{record_field,Lf,{var,La,'_'},Val1}|record_inits(Is)];
-record_inits([]) -> [].
-
-%% -type record_updates([RecordUpd]) -> [RecordUpd].
-%%  N.B. Field names are full expressions here but only atoms are allowed
-%%  by the *linter*!.
-
-record_updates([{record_field,Lf,{atom,La,F},Val0}|Us]) ->
-    Val1 = expr(Val0),
-    [{record_field,Lf,{atom,La,F},Val1}|record_updates(Us)];
-record_updates([]) -> [].
-
-%% -type icr_clauses([Clause]) -> [Clause].
-
-icr_clauses([C0|Cs]) ->
-    C1 = clause(C0),
-    [C1|icr_clauses(Cs)];
-icr_clauses([]) -> [].
+    {remote,Line,M1,F1};
+expr(X) ->
+    pattern(X).
 
 %% -type lc_bc_quals([Qualifier]) -> [Qualifier].
 %%  Allow filters to be both guard tests and general expressions.
@@ -445,20 +389,20 @@ lc_bc_quals([E0|Qs]) ->
     [E1|lc_bc_quals(Qs)];
 lc_bc_quals([]) -> [].
 
-%% -type fun_clauses([Clause]) -> [Clause].
+atom(Atom) ->
+    span("atom", atom_to_list(Atom)).
 
-fun_clauses([C0|Cs]) ->
-    C1 = clause(C0),
-    [C1|fun_clauses(Cs)];
-fun_clauses([]) -> [].
+integer(Int) ->
+    span("integer", integer_to_list(Int)).
 
-%div_open(Class) ->
-    %["<div class\"",
-     %Class,
-     %"\">"].
+module(Mod) ->
+    span("module", atom_to_list(Mod)).
 
-%div_close() ->
-    %"</div>".
+function(Fun) ->
+    span("function", atom_to_list(Fun)).
+
+arity(Arity) ->
+    span("arity", integer_to_list(Arity)).
 
 span(Keyword) ->
     span(Keyword, Keyword).
@@ -499,6 +443,8 @@ parse_symbol('-') ->
     span("dash", "-");
 parse_symbol('=') ->
     span("equals", "=");
+parse_symbol('->') ->
+    span("arrow", "->");
 parse_symbol(Atom) ->
     span(atom_to_list(Atom)).
 
@@ -513,4 +459,7 @@ separate(Separator, [Hd | Tl]) ->
     [Hd | [[Separator,E] || E <- Tl]].
 
 map_separate(Fun, List) ->
-    separate(',', lists:map(Fun, List)).
+    map_separate(',', Fun, List).
+
+map_separate(Separator, Fun, List) ->
+    separate(Separator, lists:map(Fun, List)).
