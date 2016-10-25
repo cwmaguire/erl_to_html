@@ -15,7 +15,7 @@
 %% 
 %%     $Id$
 %%
--module(erl_id_trans).
+-module(erl_to_html).
 
 %% A identity transformer of Erlang abstract syntax.
 
@@ -59,8 +59,9 @@ parse_transform(Forms, Options) ->
               [Forms, Options]),
     Filename = filename(Options),
     io:format("Filename: ~p~n", [Filename]),
-    {ok, HtmlFile} = file:open(Filename, [write]),
     HTML = parse(html(Forms)),
+io:format(user, "HTML = ~p~n", [HTML]),
+    {ok, HtmlFile} = file:open(Filename, [write]),
     file:write(HtmlFile, HTML),
     Forms.
 
@@ -69,7 +70,9 @@ filename(Options) ->
         [] ->
             "out.html";
         [Filename | _] ->
-            filename:rootname(Filename) ++ ".html"
+            HtmlFileName = filename:rootname(Filename) ++ ".html",
+            io:format("HTML file: ~p~n", [HtmlFileName]),
+            HtmlFileName
     end.
 
 %% No raw numbers should show up in the HTML
@@ -77,8 +80,8 @@ parse(String = [I | _]) when is_number(I) ->
     String;
 parse(List) when is_list(List) ->
     lists:map(fun parse/1, List);
-parse(Symbol) when is_atom(Symbol) ->
-    parse_symbol(Symbol);
+parse(Term) when is_atom(Term); is_tuple(Term) ->
+    parse_symbol(Term);
 parse(Other) ->
     Other.
 
@@ -281,14 +284,14 @@ guard_group(GuardGroup) ->
 
 %% -type expr(Expression) -> Expression.
 
-expr({lc,Line,Result,Generators}) ->
-    Qs1 = lc_bc_quals(Qs0),
+expr({lc,Line,Result,Quals}) ->
+    E1 = expr(Result),
+    [line(Line),
+     '[', E1, '||', map_separate(fun lc_bc_qual/1, Quals), ']'];
+expr({bc,Line,E0,Quals}) ->
     E1 = expr(E0),
-    {lc,Line,E1,Qs1};
-expr({bc,Line,E0,Qs0}) ->
-    Qs1 = lc_bc_quals(Qs0),
-    E1 = expr(E0),
-    {bc,Line,E1,Qs1};
+    [line(Line),
+     '<<', E1, '||', map_separate(fun lc_bc_qual/1, Quals), '>>'];
 expr({block,Line,Expressions}) ->
     [line(Line),
      'begin', map_separate(fun expr/1, Expressions), 'end'];
@@ -340,57 +343,64 @@ expr({'fun',Line,Body}) ->
          ':', span("function", F),
          '/', span("arity", A)]
     end;
-expr({call,Line,F0,As0}) ->
+expr({call,Line,Fun,Args}) ->
     %% N.B. If F an atom then call to local function or BIF, if F a
     %% remote structure (see below) then call to other module,
     %% otherwise apply to "function".
-    F1 = expr(F0),
-    As1 = expr_list(As0),
-    {call,Line,F1,As1};
-expr({'catch',Line,E0}) ->
+    [line(Line),
+     expr(Fun), '(', map_separate(fun expr/1, Args), ')'];
+expr({'catch',Line,Expression}) ->
     %% No new variables added.
-    E1 = expr(E0),
-    {'catch',Line,E1};
-expr({match,Line,P0,E0}) ->
-    E1 = expr(E0),
-    P1 = pattern(P0),
-    {match,Line,P1,E1};
-expr({bin,Line,Fs}) ->
-    Fs2 = pattern_grp(Fs),
-    {bin,Line,Fs2};
-expr({op,Line,Op,A0}) ->
-    A1 = expr(A0),
-    {op,Line,Op,A1};
-expr({op,Line,Op,L0,R0}) ->
-    L1 = expr(L0),
-    R1 = expr(R0),				%They see the same variables
-    {op,Line,Op,L1,R1};
-%% The following are not allowed to occur anywhere!
-expr({remote,Line,M0,F0}) ->
-    M1 = expr(M0),
-    F1 = expr(F0),
-    {remote,Line,M1,F1};
+    [line(Line),
+     'catch', expr(Expression)];
+expr({match,Line,Pattern,Expression}) ->
+    [line(Line),
+     pattern(Pattern), '=', expr(Expression)];
+expr({bin,Line,BinElements}) ->
+    [line(Line),
+     '<<', map_separate(fun bin/1, BinElements), '>>'];
+expr({op,Line,Op,UnaryArg}) ->
+    [line(Line),
+     Op, expr(UnaryArg)];
+expr({op,Line,Op,LeftArg,RightArg}) ->
+    [line(Line),
+     expr(LeftArg), Op, expr(RightArg)];
+expr({remote, Line, {atom, _MLine, Module}, {atom, _FLine, Function}}) ->
+    [line(Line),
+     module(Module), ':', function(Function)];
 expr(X) ->
     pattern(X).
 
-%% -type lc_bc_quals([Qualifier]) -> [Qualifier].
+%% -type lc_bc_qual([Qualifier]) -> [Qualifier].
 %%  Allow filters to be both guard tests and general expressions.
 
 %% This is a list of generators _or_ filters
 %% which are simply expressions
 %% A generator is a target and a source
-lc_bc_quals([{generate,Line,P0,E0}|Qs]) ->
-    P1 = pattern(P0), %% <- Target
-    E1 = expr(E0), %% <- Source
-    [{generate,Line,P1,E1}|lc_bc_quals(Qs)];
-lc_bc_quals([{b_generate,Line,P0,E0}|Qs]) ->
-    E1 = expr(E0),
-    P1 = pattern(P0),
-    [{b_generate,Line,P1,E1}|lc_bc_quals(Qs)];
-lc_bc_quals([E0|Qs]) ->
-    E1 = expr(E0), %% <- filter expression
-    [E1|lc_bc_quals(Qs)];
-lc_bc_quals([]) -> [].
+lc_bc_qual({generate,_Line,Target,Source}) ->
+    ['[', pattern(Target), '<-', expr(Source), ']'];
+lc_bc_qual({b_generate,_Line,Target,Source}) ->
+    [pattern(Target), '<=', expr(Source)];
+lc_bc_qual(FilterExpression) ->
+    expr(FilterExpression).
+
+bin({bin_element,Size,Var,Size,MaybeTypes}) ->
+    [var(Var),
+    case Size of
+        default ->
+            "";
+        {integer, _Line, Int} ->
+            [':', integer(Int)]
+    end,
+    case MaybeTypes of
+        default ->
+            "";
+        _ ->
+            ['/', map_separate('-', fun bit_type/1, MaybeTypes)]
+    end].
+
+var(Atom) ->
+    span("var", atom_to_list(Atom)).
 
 atom(Atom) ->
     span("atom", atom_to_list(Atom)).
@@ -447,7 +457,13 @@ parse_symbol('-') ->
 parse_symbol('=') ->
     span("equals", "=");
 parse_symbol('->') ->
-    span("arrow", "->");
+    span("clause_arrow", "->");
+parse_symbol('<-') ->
+    span("generator_arrow", "<-");
+parse_symbol({line, Line}) ->
+    span("line", integer_to_list(Line));
+parse_symbol({eof, Line}) ->
+    span("eof", integer_to_list(Line));
 parse_symbol(Atom) ->
     span(atom_to_list(Atom)).
 
@@ -458,6 +474,8 @@ line(Line) ->
 separate(List) when is_list(List) ->
     separate(',', List).
 
+separate(_, []) ->
+    [];
 separate(Separator, [Hd | Tl]) ->
     [Hd | [[Separator,E] || E <- Tl]].
 
