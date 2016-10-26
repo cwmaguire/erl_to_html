@@ -98,23 +98,22 @@ html(Forms) when is_list(Forms) ->
 %% First the various attributes.
 html({attribute,Line,module,Mod}) ->
     [line(Line),
-     '-', 'module', '(', span("module", atom_to_list(Mod)), ')', '.'];
+     '-', 'module', '(', module(Mod), ')', '.'];
 html({attribute,Line,file,{File,Line}}) ->	%This is valid anywhere.
     [line(Line),
-     '-', 'file', '(', span("file", File), ')', '.'];
+     '%', '-', 'file', '(', span("file", File), ')', '.'];
 html({attribute,Line,export,Es0}) ->
     [line(Line),
-     '-', 'export', '[', farity_list(Es0), ']'];
+     '-', 'export', '[', farity_list(Es0), ']', '.'];
 html({attribute,Line,import,{Mod,Is0}}) ->
-    ModuleSpan = span("module", atom_to_list(Mod)),
     [line(Line),
-     '-', 'import', ',', ModuleSpan, '(', '[', farity_list(Is0), ']', ')', '.'];
+     '-', 'import', ',', module(Mod), '(', '[', farity_list(Is0), ']', ')', '.'];
 html({attribute,Line,compile,C}) ->
     [line(Line),
      '-', 'compile', '(', span("compile_option", atom_to_list(C)), ')', '.'];
 html({attribute,Line,record,{Name,Defs}}) ->
     [line(Line),
-     '-', 'record', '(', span("record_name", atom_to_list(Name)), ',', '{', 
+     '-', 'record', '(', span("record_name", atom_to_list(Name)), ',', '{',
      record_defs(Defs),
      '}', ')', '.'];
 html({attribute,Line,asm,{function,_N,_A,_Code}}) ->
@@ -133,7 +132,7 @@ html({error,E}) ->
 html({warning,W}) ->
     {warning,W};
 html({eof,Line}) ->
-    {eof,Line}.
+    [line(Line), '%', eof].
 
 %% -type farity_list([Farity]) -> [Farity] when Farity <= {atom(),integer()}.
 
@@ -166,8 +165,7 @@ clause(Name, {clause,Line,Head,GuardGroups,Body}) ->
      head(Head),
      separate(';', lists:map(fun guard_group/1, GuardGroups)),
      '->',
-     separate(lists:map(fun expr/1, Body)),
-     '.'].
+     separate(lists:map(fun expr/1, Body))].
 
 %% -type head([Pattern]) -> [Pattern].
 
@@ -339,7 +337,7 @@ expr({'fun',Line,Body}) ->
 	    F = expr(F0),
 	    A = expr(A0),
         [line(Line),
-         span("module", M),
+         module(M),
          ':', span("function", F),
          '/', span("arity", A)]
     end;
@@ -409,7 +407,7 @@ integer(Int) ->
     span("integer", integer_to_list(Int)).
 
 module(Mod) ->
-    span("module", atom_to_list(Mod)).
+    span("module-literal", atom_to_list(Mod)).
 
 function(Fun) ->
     span("function", atom_to_list(Fun)).
@@ -421,11 +419,11 @@ span(Keyword) ->
     span(Keyword, Keyword).
 
 span(Class, Text) ->
-     ["<span class=\"",
+     ["--><span class=\"",
       Class,
       "\">",
       Text,
-      "</span>"].
+      "</span><!--\n"].
 
 %span_open(Class) ->
     %["<span class=\"",
@@ -460,10 +458,12 @@ parse_symbol('->') ->
     span("clause_arrow", "->");
 parse_symbol('<-') ->
     span("generator_arrow", "<-");
+parse_symbol('%') ->
+    span("comment", "%");
 parse_symbol({line, Line}) ->
     span("line", integer_to_list(Line));
-parse_symbol({eof, Line}) ->
-    span("eof", integer_to_list(Line));
+parse_symbol(eof) ->
+    span("eof");
 parse_symbol(Atom) ->
     span(atom_to_list(Atom)).
 
