@@ -1,4 +1,4 @@
--module(parse_test_remote_fun).
+-module(example_remote_fun).
 
 -export([a/0]).
 

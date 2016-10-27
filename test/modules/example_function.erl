@@ -1,6 +1,9 @@
--module(parse_test2).
+-module(example_function).
 
+-export([a/0]).
 -export([a/1]).
+
+a() -> ok.
 
 %% This becomes a list of two ops
 a(A) when A > 1, A < 3 ->
@@ -18,4 +21,3 @@ a(A) when is_integer(A) andalso A == 2 ->
 %% This is a list of a call
 a(A) when is_integer(A) ->
     ok.
-

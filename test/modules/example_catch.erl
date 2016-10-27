@@ -1,4 +1,4 @@
--module(parse_test_catch).
+-module(example_catch).
 
 -export([a/0]).
 

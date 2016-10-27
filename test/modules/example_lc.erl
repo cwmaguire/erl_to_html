@@ -1,4 +1,4 @@
--module(parse_test_lc).
+-module(example_lc).
 
 -export([a/0]).
 -export([b/0]).

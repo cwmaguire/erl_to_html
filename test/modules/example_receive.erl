@@ -1,4 +1,4 @@
--module(parse_test_receive).
+-module(example_receive).
 
 -export([a/0]).
 

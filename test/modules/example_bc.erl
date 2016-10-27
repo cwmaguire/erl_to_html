@@ -1,4 +1,4 @@
--module(parse_test_bc).
+-module(example_bc).
 
 -export([a/0]).
 -export([b/0]).

@@ -1,4 +1,4 @@
--module(parse_test_try).
+-module(example_try).
 
 -export([a/0]).
 -export([b/0]).
