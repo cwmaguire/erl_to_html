@@ -34,22 +34,6 @@
 -export([write_html/1]).
 -export([parse_transform/2]).
 
--define(PAREN_OPEN, span("paren", ")")).
--define(PAREN_CLOSE, span("paren", ")")).
--define(BRACE_OPEN, span("brace", "{")).
--define(BRACE_CLOSE, span("brace", "}")).
--define(BRACKET_OPEN, span("bracket", "[")).
--define(BRACKET_CLOSE, span("bracket", "]")).
--define(PERIOD, span("period", ",")).
--define(SEMICOLON, span("semicolon", ";")).
--define(COMMA, span("comma", ",")).
--define(SLASH, span("slash", "/")).
--define(DASH, span("dash", "-")).
--define(EQUALS, span("dash", "-")).
--define(LINE_SPAN, span("line", integer_to_list(Line))).
--define(SPAN_CLOSE, "</span>").
--define(NO_SEPARATOR, "").
-
 write_html(Filename) ->
     io:format("Compiling ~p~n", [Filename]),
     compile:file(Filename, [{parse_transform, ?MODULE}, {d, filename, Filename}]).
@@ -156,8 +140,16 @@ record_def({record_field,Line,{atom,_La,A}}) ->
     [line(Line),
      span("record_field", atom_to_list(A))].
 
+catch_clause({clause, Line, Exception, GuardGroups, Body}) ->
+    [{tuple, _Line, [Class, ExceptionPattern, _Wild]}] = Exception,
+    [line(Line),
+     pattern(Class), ':', pattern(ExceptionPattern),
+     separate(';', lists:map(fun guard_group/1, GuardGroups)),
+     '->',
+     separate(lists:map(fun expr/1, Body))].
+
 clause({clause, Line, Head, GuardGroups, Body}) ->
-    clause("", {clause, Line, Head, GuardGroups, Body}).
+    clause('', {clause, Line, Head, GuardGroups, Body}).
 
 clause(Name, {clause,Line,Head,GuardGroups,Body}) ->
     [line(Line),
@@ -177,7 +169,7 @@ head(Patterns) ->
 
 pattern({var,Line,V}) ->
     [line(Line),
-     atom_to_list(V)];
+     var(V)];
 pattern({match,Line,Left,Right}) ->
     [line(Line),
      span("match", [pattern(Left), '=', pattern(Right)])];
@@ -310,13 +302,13 @@ expr({'receive',Line,Clauses}) ->
 expr({'receive',Line,Clauses,AfterWait,AfterExpressions}) ->
     [line(Line),
      'receive', map_separate(fun clause/1, Clauses),
-     'after', integer(AfterWait), '->',
+     'after', expr(AfterWait), '->',
      map_separate(fun expr/1, AfterExpressions),
      'end'];
 expr({'try',Line,Expressions,_WhatIsThis,CatchClauses,AfterExpressions}) ->
     [line(Line),
      'try', map_separate(fun expr/1, Expressions),
-     'catch', map_separate(';', fun clause/1, CatchClauses),
+     'catch', map_separate(';', fun catch_clause/1, CatchClauses),
      'after', map_separate(fun expr/1, AfterExpressions),
      'end'];
 expr({'fun',Line,Body}) ->
@@ -382,23 +374,24 @@ lc_bc_qual({b_generate,_Line,Target,Source}) ->
 lc_bc_qual(FilterExpression) ->
     expr(FilterExpression).
 
-bin({bin_element,Size,Var,Size,MaybeTypes}) ->
-    [var(Var),
-    case Size of
-        default ->
-            "";
-        {integer, _Line, Int} ->
-            [':', integer(Int)]
-    end,
-    case MaybeTypes of
-        default ->
-            "";
-        _ ->
-            ['/', map_separate('-', fun bit_type/1, MaybeTypes)]
-    end].
+bin({bin_element,Line,Var,Size,MaybeTypes}) ->
+    [line(Line),
+     pattern(Var),
+     case Size of
+         default ->
+             "";
+         Int ->
+             [':', integer(Int)]
+     end,
+     case MaybeTypes of
+         default ->
+             "";
+         _ ->
+             ['/', map_separate('-', fun bit_type/1, MaybeTypes)]
+     end].
 
 var(Atom) ->
-    span("var", atom_to_list(Atom)).
+    span("variable", atom_to_list(Atom)).
 
 atom(Atom) ->
     span("atom", atom_to_list(Atom)).
@@ -418,6 +411,12 @@ arity(Arity) ->
 span(Keyword) ->
     span(Keyword, Keyword).
 
+span(Class = "tuple", Text) ->
+     ["--><span class=\"",
+      Class,
+      "\"><!--\n",
+      Text,
+      "--></span><!--\n"];
 span(Class, Text) ->
      ["--><span class=\"",
       Class,
@@ -446,6 +445,8 @@ parse_symbol('.') ->
     span("period", ".");
 parse_symbol(',') ->
     span("comma", ",");
+parse_symbol(':') ->
+    span("colon", ":");
 parse_symbol(';') ->
     span("semicolon", ";");
 parse_symbol('/') ->
@@ -454,6 +455,10 @@ parse_symbol('-') ->
     span("dash", "-");
 parse_symbol('=') ->
     span("equals", "=");
+parse_symbol('==') ->
+    span("double-equals", "==");
+parse_symbol('+') ->
+    span("plus", "+");
 parse_symbol('->') ->
     span("clause_arrow", "->");
 parse_symbol('<-') ->

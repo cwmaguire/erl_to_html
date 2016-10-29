@@ -11,18 +11,24 @@ compare_html(_Config) ->
     io:format("~p", [file:get_cwd()]),
     {ok, Filenames} = file:list_dir("../../test/modules"),
     io:format("Filenames: ~p~n", [Filenames]),
-    [compare(F, example_file(F), html_file(F)) || F = "example_" ++ _ <- Filenames].
+    SourceFiles = lists:filter(fun is_source_file/1, Filenames),
+    [compare(F, example_file(F), html_file(F)) || F <- SourceFiles].
 
-compare(Source, Example, Result) ->
-    erl_to_html:write_html(Source),
-    io:format("Reading result: ~p~n", [Result]),
-    {ok, Result} = file:read_file(Result),
-    io:format("Reading example: ~p~n", [Example]),
-    {ok, Expected} = file:read_file(Example),
+compare(SourceFile, ExampleFile, ResultFile) ->
+    ct:pal("Comparing result ~p with example ~p~n", [ResultFile, ExampleFile]),
+    erl_to_html:write_html(SourceFile),
+    {ok, Result} = file:read_file(ResultFile),
+    {ok, Expected} = file:read_file(ExampleFile),
     Result = Expected.
+
+is_source_file("example_" ++ Rest) ->
+    [T, X, E | _] = lists:reverse(Rest),
+    [E, X, T] == "erl";
+is_source_file(_) ->
+    false.
 
 html_file(Filename) ->
     "../../test/modules/" ++ filename:rootname(Filename) ++ ".html".
 
 example_file(Filename) ->
-    "../../test/modules/" ++ filename:rootname(Filename) ++ "_example.html".
+    "../../test/modules/test_" ++ filename:rootname(Filename) ++ ".html".
