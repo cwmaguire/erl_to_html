@@ -17,20 +17,6 @@
 %%
 -module(erl_to_html).
 
-%% A identity transformer of Erlang abstract syntax.
-
-%% This module only traverses legal Erlang code. This is most noticeable
-%% in guards where only a limited number of expressions are allowed.
-%% N.B. if this module is to be used as a basis for tranforms then
-%% all the error cases must be handled otherwise this module just crashes!
-
-%% I'd like to try creating the HTML without having to thread the file and separators
-%% through the whole file.
-%%
-%% I think I can just pass back the origin Forms as-is.
-%% This means that I don't need any of the functions to return the
-%% origin {foo, Bar, Baz} form, they can simply return HTML io_lists.
-
 -export([write_html/1]).
 -export([parse_transform/2]).
 
