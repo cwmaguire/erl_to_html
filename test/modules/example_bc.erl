@@ -1,3 +1,5 @@
+%% comment
+%% $$
 -module(example_bc).
 
 -export([a/0]).

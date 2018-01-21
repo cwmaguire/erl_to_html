@@ -3,16 +3,16 @@
 %% compliance with the License. You should have received a copy of the
 %% Erlang Public License along with this software. If not, it can be
 %% retrieved via the world wide web at http://www.erlang.org/.
-%% 
+%%
 %% Software distributed under the License is distributed on an "AS IS"
 %% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
 %% the License for the specific language governing rights and limitations
 %% under the License.
-%% 
+%%
 %% The Initial Developer of the Original Code is Ericsson Utvecklings AB.
 %% Portions created by Ericsson are Copyright 1999, Ericsson Utvecklings
 %% AB. All Rights Reserved.''
-%% 
+%%
 %%     $Id$
 %%
 -module(erl_to_html).
@@ -30,7 +30,7 @@ parse_transform(Forms, Options) ->
     Filename = filename(Options),
     io:format("Filename: ~p~n", [Filename]),
     HTML = parse(html(Forms)),
-io:format(user, "HTML = ~p~n", [HTML]),
+    %io:format(user, "HTML = ~p~n", [HTML]),
     {ok, HtmlFile} = file:open(Filename, [write]),
     file:write(HtmlFile, HTML),
     Forms.
@@ -71,7 +71,7 @@ html({attribute,Line,module,Mod}) ->
      '-', 'module', '(', module(Mod), ')', '.'];
 html({attribute,Line,file,{File,Line}}) ->	%This is valid anywhere.
     [line(Line),
-     '%', '-', 'file', '(', span("file", File), ')', '.'];
+     '%', '-', 'file', '(', span("file-literal", File), ')', '.'];
 html({attribute,Line,export,Es0}) ->
     [line(Line),
      '-', 'export', '[', farity_list(Es0), ']', '.'];
@@ -80,10 +80,10 @@ html({attribute,Line,import,{Mod,Is0}}) ->
      '-', 'import', ',', module(Mod), '(', '[', farity_list(Is0), ']', ')', '.'];
 html({attribute,Line,compile,C}) ->
     [line(Line),
-     '-', 'compile', '(', span("compile_option", atom_to_list(C)), ')', '.'];
+     '-', 'compile', '(', span("compile-option", atom_to_list(C)), ')', '.'];
 html({attribute,Line,record,{Name,Defs}}) ->
     [line(Line),
-     '-', 'record', '(', span("record_name", atom_to_list(Name)), ',', '{',
+     '-', 'record', '(', span("record-name", atom_to_list(Name)), ',', '{',
      record_defs(Defs),
      '}', ')', '.'];
 html({attribute,Line,asm,{function,_N,_A,_Code}}) ->
@@ -102,7 +102,7 @@ html({error,E}) ->
 html({warning,W}) ->
     {warning,W};
 html({eof,Line}) ->
-    [line(Line), '%', eof].
+    [line(Line), span("comment", "eof")].
 
 %% -type farity_list([Farity]) -> [Farity] when Farity <= {atom(),integer()}.
 
@@ -173,7 +173,7 @@ pattern({atom,Line,A}) ->
      span("atom", atom_to_list(A))];
 pattern({string,Line,S}) ->
     [line(Line),
-     span("string", S)];
+     '"', span("string", S), '"'];
 pattern({nil,Line}) ->
     [line(Line),
      span("list", ['[', ']'])];
@@ -185,6 +185,9 @@ pattern({tuple,Line,Patterns}) ->
 pattern({cons,Line,Head,{nil, _}}) ->
     [line(Line),
      '[', pattern(Head), ']'];
+pattern({cons,Line,Head,{var, _Line2, '_'}}) ->
+    [line(Line),
+     '[', pattern(Head), '|', '_', ']'];
 pattern({cons,Line,Head,Tail}) ->
     [line(Line),
      '[', separate([pattern(Head) | pattern({tail, Tail})]), ']'];
@@ -446,9 +449,11 @@ parse_symbol('==') ->
 parse_symbol('+') ->
     span("plus", "+");
 parse_symbol('->') ->
-    span("clause_arrow", "->");
+    span("clause_arrow", "-&gt;");
 parse_symbol('<-') ->
-    span("generator_arrow", "<-");
+    span("generator_arrow", "&lt;-");
+parse_symbol('"') ->
+    span("double-quote", "&quot;");
 parse_symbol('%') ->
     span("comment", "%");
 parse_symbol({line, Line}) ->

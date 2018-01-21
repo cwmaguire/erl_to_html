@@ -8,9 +8,9 @@ all() ->
     [compare_html].
 
 compare_html(_Config) ->
-    io:format("~p", [file:get_cwd()]),
+    ct:pal("~p", [file:get_cwd()]),
     {ok, Filenames} = file:list_dir("../../test/modules"),
-    io:format("Filenames: ~p~n", [Filenames]),
+    ct:pal("Filenames: ~p~n", [Filenames]),
     SourceFiles = lists:filter(fun is_source_file/1, Filenames),
     [compare(F, example_file(F), html_file(F)) || F <- SourceFiles].
 
