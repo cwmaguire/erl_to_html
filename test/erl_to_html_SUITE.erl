@@ -12,7 +12,8 @@ compare_html(_Config) ->
     {ok, Filenames} = file:list_dir("../../test/modules"),
     ct:pal("Filenames: ~p~n", [Filenames]),
     SourceFiles = lists:filter(fun is_source_file/1, Filenames),
-    [compare(F, example_file(F), html_file(F)) || F <- SourceFiles].
+    ct:pal("Source files: ~p~n", [SourceFiles]),
+    [compare("../../test/modules/" ++ F, example_file(F), html_file(F)) || F <- SourceFiles].
 
 compare(SourceFile, ExampleFile, ResultFile) ->
     ct:pal("Comparing result ~p with example ~p~n", [ResultFile, ExampleFile]),

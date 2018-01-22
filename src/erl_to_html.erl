@@ -21,15 +21,17 @@
 -export([parse_transform/2]).
 
 write_html(Filename) ->
-    io:format("Compiling ~p~n", [Filename]),
-    compile:file(Filename, [{parse_transform, ?MODULE}, {d, filename, Filename}]).
+    io:format(user, "Compiling ~p~n", [Filename]),
+    Result = compile:file(Filename, [{parse_transform, ?MODULE},
+                                     {d, filename, Filename}]),
+    io:format(user, "Compile result:~n~p~n", [Result]).
 
 parse_transform(Forms, Options) ->
-    io:format("Parse transforming forms: ~n\t~p~n\t with Options:~n\t~p~n",
+    io:format(user, "Parse transforming forms: ~n\t~p~n\t with Options:~n\t~p~n",
               [Forms, Options]),
     Filename = filename(Options),
-    io:format("Filename: ~p~n", [Filename]),
-    HTML = parse(html(Forms)),
+    io:format(user, "Filename: ~p~n", [Filename]),
+    HTML = lines(parse(html(Forms))),
     %io:format(user, "HTML = ~p~n", [HTML]),
     {ok, HtmlFile} = file:open(Filename, [write]),
     file:write(HtmlFile, HTML),
@@ -41,9 +43,34 @@ filename(Options) ->
             "out.html";
         [Filename | _] ->
             HtmlFileName = filename:rootname(Filename) ++ ".html",
-            io:format("HTML file: ~p~n", [HtmlFileName]),
+            io:format(user, "HTML file: ~p~n", [HtmlFileName]),
             HtmlFileName
     end.
+
+%% walk the tree and wrap lines in spans
+lines(Tree) ->
+    {Tree2, _} = lines([], Tree, 1),
+    StartLine = [<<"--><span class=\"line\">">>,
+                 <<"<span class=\"line_no\">">>,
+                 <<"1">>,
+                 <<"</span><!--\n">>],
+    [StartLine, Tree2, <<"</span>">>].
+
+lines(Tree, [], Line)  ->
+    {lists:reverse(Tree), Line};
+lines(Tree, [Head | Rest], Line) when is_list(Head) ->
+    {SubTree, CurrLine} = lines([], Head, Line),
+    lines([SubTree | Tree], Rest, CurrLine);
+lines(Tree, [{line, Line} | Rest], Line) ->
+    % same line
+    lines(Tree, Rest, Line);
+lines(Tree, [{line, NewLine} | Rest], Line) ->
+    StartLine = [<<"--></span><span class=\"line\"><span class=\"line_no\">">>,
+                 i2b(Line + 1),
+                 <<"</span><!--\n">>],
+    lines([StartLine | Tree], [{line, NewLine} | Rest], Line + 1);
+lines(Tree, [Head | Rest], Line) ->
+    lines([Head | Tree], Rest, Line).
 
 %% No raw numbers should show up in the HTML
 parse(String = [I | _]) when is_number(I) ->
@@ -54,9 +81,6 @@ parse(Term) when is_atom(Term); is_tuple(Term) ->
     parse_symbol(Term);
 parse(Other) ->
     Other.
-
-
-%% forms(Fs) -> lists:map(fun (F) -> form(F) end, Fs).
 
 html(Forms) when is_list(Forms) ->
     [html(Form) || Form <- Forms];
@@ -380,38 +404,46 @@ bin({bin_element,Line,Var,Size,MaybeTypes}) ->
      end].
 
 var(Atom) ->
-    span("variable", atom_to_list(Atom)).
+    span(<<"variable">>, a2b(Atom)).
 
 atom(Atom) ->
-    span("atom", atom_to_list(Atom)).
+    span(<<"atom">>, a2b(Atom)).
 
 integer(Int) ->
-    span("integer", integer_to_list(Int)).
+    span(<<"integer">>, i2b(Int)).
 
 module(Mod) ->
-    span("module-literal", atom_to_list(Mod)).
+    span(<<"module-literal">>, a2b(Mod)).
 
 function(Fun) ->
-    span("function", atom_to_list(Fun)).
+    span(<<"function">>, a2b(Fun)).
 
 arity(Arity) ->
-    span("arity", integer_to_list(Arity)).
+    span(<<"arity">>, i2b(Arity)).
+
+i2b(I) ->
+    list_to_binary(integer_to_list(I)).
+
+a2b(A) ->
+    list_to_binary(atom_to_list(A)).
 
 span(Keyword) ->
     span(Keyword, Keyword).
 
-span(Class = "tuple", Text) ->
-     ["--><span class=\"",
+span(_Class = <<"line">>, Line) ->
+    {line, Line};
+span(Class = <<"tuple">>, Text) ->
+     [<<"--><span class=\"">>,
       Class,
-      "\"><!--\n",
+      <<"\"><!--\n">>,
       Text,
-      "--></span><!--\n"];
+      <<"--></span><!--\n">>];
 span(Class, Text) ->
-     ["--><span class=\"",
+     [<<"--><span class=\"">>,
       Class,
-      "\">",
+      <<"\">">>,
       Text,
-      "</span><!--\n"].
+      <<"</span><!--\n">>].
 
 %span_open(Class) ->
     %["<span class=\"",
@@ -444,6 +476,10 @@ parse_symbol('-') ->
     span("dash", "-");
 parse_symbol('=') ->
     span("equals", "=");
+parse_symbol('>') ->
+    span("greater_than", "&gt;");
+parse_symbol('<') ->
+    span("less_than", "&lt;");
 parse_symbol('==') ->
     span("double-equals", "==");
 parse_symbol('+') ->
@@ -456,8 +492,8 @@ parse_symbol('"') ->
     span("double-quote", "&quot;");
 parse_symbol('%') ->
     span("comment", "%");
-parse_symbol({line, Line}) ->
-    span("line", integer_to_list(Line));
+parse_symbol(Line = {line, _}) ->
+    Line;
 parse_symbol(eof) ->
     span("eof");
 parse_symbol(Atom) ->
@@ -465,7 +501,6 @@ parse_symbol(Atom) ->
 
 line(Line) ->
     {line, Line}.
-    %span("line", integer_to_list(Line)).
 
 separate(List) when is_list(List) ->
     separate(',', List).
