@@ -1,4 +1,3 @@
-%% ``The contents of this file are subject to the Erlang Public License,
 %% Version 1.1, (the "License"); you may not use this file except in
 %% compliance with the License. You should have received a copy of the
 %% Erlang Public License along with this software. If not, it can be
@@ -34,7 +33,7 @@ parse_transform(Forms, Options) ->
     HTML = lines(parse(html(Forms))),
     %io:format(user, "HTML = ~p~n", [HTML]),
     {ok, HtmlFile} = file:open(Filename, [write]),
-    file:write(HtmlFile, HTML),
+    file:write(HtmlFile, [HTML, <<"\n">>]),
     Forms.
 
 filename(Options) ->
@@ -143,12 +142,37 @@ farity({Name, Arity}) ->
 record_defs(Defs) ->
     separate(lists:map(fun record_def/1, Defs)).
 
+%% I think integer and atom are the only other values
+%% for the type field:
+%% {atom, Line, foo}
+%% {integer, Line, 1}
+%% {type, Line, Type, ListOfSubTypes}
+%%
+%% fun((...) -> any()) is wierd because the (...) is
+%% the any type except without the ListOfSubTypes
+%% e.g. {type, Line, any} instead of {type, Line, any, []}
+
+record_def({typed_record_field, RecordDef, Type}) ->
+    [record_def(RecordDef),
+     record_type_line(RecordDef, Type),
+     type(Type)];
 record_def({record_field,Line,{atom,_La,A},Val}) ->
     [line(Line),
      span("record_field", atom_to_list(A)), '=', expr(Val)];
 record_def({record_field,Line,{atom,_La,A}}) ->
     [line(Line),
      span("record_field", atom_to_list(A))].
+
+record_type_line(RecordDef, RecordType) ->
+    RecordLine = element(2, RecordDef),
+    TypeLine = element(2, RecordType),
+    Line = case TypeLine - RecordLine of
+        X when X > 1 ->
+            RecordLine + 1;
+        _ ->
+            RecordLine
+    end,
+    [line(Line), '::'].
 
 catch_clause({clause, Line, Exception, GuardGroups, Body}) ->
     [{tuple, _Line, [Class, ExceptionPattern, _Wild]}] = Exception,
@@ -377,6 +401,89 @@ expr(X) ->
 %% -type lc_bc_qual([Qualifier]) -> [Qualifier].
 %%  Allow filters to be both guard tests and general expressions.
 
+% No idea what ann_type is
+type({ann_type,Line,[{var,Lv,V},T]}) ->
+    T1 = type(T),
+    {ann_type,Line,[{var,Lv,V},T1]};
+type({atom,Line,A}) ->
+    [line(Line), atom(A)];
+type({integer,Line,I}) ->
+    [line(Line), integer(I)];
+%% TODO NOPE! There's a type in here
+type(Op = {op,_, _, _TypeWhichNeedsToBeHandled}) ->
+    pattern(Op);
+type(Op = {op,_, _, _, _}) ->
+    pattern(Op);
+type({type,Line,binary,[0,0]}) ->
+    [line(Line), '<<', '>>'];
+type({type,Line,binary,[M,0]}) ->
+    [line(Line), '<<', '_', ':', M, '>>'];
+type({type,Line,binary,[0,N]}) ->
+    [line(Line), '<<', '_', ':', '_', '*', N, '>>'];
+type({type,Line,binary,[M,N]}) ->
+    [line(Line), '<<', '_', ':', M, ',', '_', ':', '_', '*', N, '>>'];
+% TODO
+type({type,Line,'fun',[]}) ->
+    [line(Line), span("fun", "fun"), '(', ')'];
+type({type,Line,'fun',[{type,Lt,any},B]}) ->
+    %B1 = type(B),
+    %{type,Line,'fun',[{type,Lt,any},B1]};
+    [line(Line), span("fun", "fun"), '(', ')',
+     line(Lt), '(', '...', ')', '->', type(B)];
+type({type,Line,any,[]}) ->
+    [line(Line), span("any", "any"), '(', ')'];
+type({type,Line,range,[L,H]}) ->
+    L1 = type(L),
+    H1 = type(H),
+    {type,Line,range,[L1,H1]};
+type({type,Line,map,any}) ->
+    {type,Line,map,any};
+type({type,Line,map,Ps}) ->
+    Ps1 = map_pair_types(Ps),
+    {type,Line,map,Ps1};
+type({type,Line,record,[{atom,La,N}|Fs]}) ->
+    Fs1 = field_types(Fs),
+    {type,Line,record,[{atom,La,N}|Fs1]};
+type({remote_type,Line,[{atom,Lm,M},{atom,Ln,N},As]}) ->
+    As1 = type_list(As),
+    {remote_type,Line,[{atom,Lm,M},{atom,Ln,N},As1]};
+type({type,Line,tuple,any}) ->
+    {type,Line,tuple,any};
+type({type,Line,tuple,Ts}) ->
+    Ts1 = type_list(Ts),
+    {type,Line,tuple,Ts1};
+type({type,Line,union,Ts}) ->
+    Ts1 = type_list(Ts),
+    {type,Line,union,Ts1};
+type({var,Line,V}) ->
+    {var,Line,V};
+type({user_type,Line,N,As}) ->
+    As1 = type_list(As),
+    {user_type,Line,N,As1};
+type({type,Line,N,As}) ->
+    As1 = type_list(As),
+    {type,Line,N,As1}.
+
+map_pair_types([{type,Line,map_field_assoc,[K,V]}|Ps]) ->
+    K1 = type(K),
+    V1 = type(V),
+    [{type,Line,map_field_assoc,[K1,V1]}|map_pair_types(Ps)];
+map_pair_types([{type,Line,map_field_exact,[K,V]}|Ps]) ->
+    K1 = type(K),
+    V1 = type(V),
+    [{type,Line,map_field_exact,[K1,V1]}|map_pair_types(Ps)];
+map_pair_types([]) -> [].
+
+field_types([{type,Line,field_type,[{atom,La,A},T]}|Fs]) ->
+    T1 = type(T),
+    [{type,Line,field_type,[{atom,La,A},T1]}|field_types(Fs)];
+field_types([]) -> [].
+
+type_list([T|Ts]) ->
+    T1 = type(T),
+    [T1|type_list(Ts)];
+type_list([]) -> [].
+
 %% This is a list of generators _or_ filters
 %% which are simply expressions
 %% A generator is a target and a source
@@ -492,6 +599,14 @@ parse_symbol('"') ->
     span("double-quote", "&quot;");
 parse_symbol('%') ->
     span("comment", "%");
+parse_symbol('::') ->
+    span("record_type_op", "::");
+parse_symbol('<<') ->
+    span("binary_open", "<<");
+parse_symbol('>>') ->
+    span("binary_close", ">>");
+parse_symbol('...') ->
+    span("any_elipsis", "...");
 parse_symbol(Line = {line, _}) ->
     Line;
 parse_symbol(eof) ->
