@@ -26,17 +26,22 @@ write_html(Filename) ->
     io:format(user, "Compile result:~n~p~n", [Result]).
 
 parse_transform(Forms, Options) ->
-    io:format(user, "Scanning file for indentation~n", []),
+    Filename = filename(Options),
+    io:format(user, "Scanning ~p for indentation~n", [Filename]),
+    Indents = get_indents:indents(Filename),
+    io:format(user, "Indents = ~p~n", [Indents]),
+
     io:format(user, "Parse transforming forms: ~n"
                     "\t~p~n"
                     "\t with Options:~n"
                     "\t~p~n",
               [Forms, Options]),
-    Filename = filename(Options),
-    io:format(user, "Filename: ~p~n", [Filename]),
-    HTML = lines(parse(html(Forms))),
+
+    HtmlFilename = html_filename(Filename),
+    io:format(user, "Filename: ~p~n", [HtmlFilename]),
+    HTML = lines(parse(html(Forms)), Indents),
     %io:format(user, "HTML = ~p~n", [HTML]),
-    {ok, HtmlFile} = file:open(Filename, [write]),
+    {ok, HtmlFile} = file:open(HtmlFilename, [write]),
     file:write(HtmlFile, [HTML, <<"\n">>]),
     Forms.
 
@@ -45,35 +50,49 @@ filename(Options) ->
         [] ->
             "out.html";
         [Filename | _] ->
-            HtmlFileName = filename:rootname(Filename) ++ ".html",
-            io:format(user, "HTML file: ~p~n", [HtmlFileName]),
-            HtmlFileName
+            Filename
     end.
 
+html_filename(Filename) ->
+    filename:rootname(Filename) ++ ".html".
+
 %% walk the tree and wrap lines in spans
-lines(Tree) ->
-    {Tree2, _} = lines([], Tree, 1),
+lines(Tree, Indents) ->
+    {Tree2, _} = lines([], Tree, 0, Indents),
     StartLine = [<<"--><span class=\"line\">">>,
                  <<"<span class=\"line_no\">">>,
-                 <<"1">>,
+                 <<"0">>,
+                 html_spaces(maps:get(1, Indents, 0)),
                  <<"</span><!--\n">>],
     [StartLine, Tree2, <<"</span>">>].
 
-lines(Tree, [], Line)  ->
+lines(Tree, [], Line, _Indents)  ->
     {lists:reverse(Tree), Line};
-lines(Tree, [Head | Rest], Line) when is_list(Head) ->
-    {SubTree, CurrLine} = lines([], Head, Line),
-    lines([SubTree | Tree], Rest, CurrLine);
-lines(Tree, [{line, Line} | Rest], Line) ->
+lines(Tree, [Head | Rest], Line, Indents) when is_list(Head) ->
+    {SubTree, CurrLine} = lines([], Head, Line, Indents),
+    lines([SubTree | Tree], Rest, CurrLine, Indents);
+lines(Tree, [{line, Line} | Rest], Line, Indents) ->
     % same line
-    lines(Tree, Rest, Line);
-lines(Tree, [{line, NewLine} | Rest], Line) ->
-    StartLine = [<<"--></span><span class=\"line\"><span class=\"line_no\">">>,
+    lines(Tree, Rest, Line, Indents);
+lines(Tree, [{line, NewLine} | Rest], Line, Indents) ->
+    StartLine = [_EndPrevLine = <<"--></span>">>,
+                 <<"<span class=\"line\">">>,
+                 <<"<span class=\"line_no\">">>,
                  i2b(Line + 1),
-                 <<"</span><!--\n">>],
-    lines([StartLine | Tree], [{line, NewLine} | Rest], Line + 1);
-lines(Tree, [Head | Rest], Line) ->
-    lines([Head | Tree], Rest, Line).
+                 <<"</span>">>,
+                 <<"<!--\n">>,
+                 html_spaces(maps:get(NewLine, Indents, 0))],
+    %io:format("Calling lines again with ~p~n", [Line + 1]),
+    lines([StartLine | Tree],
+          [{line, NewLine} | Rest],
+          Line + 1,
+          Indents);
+lines(Tree, [Head | Rest], Line, Indents) ->
+    lines([Head | Tree], Rest, Line, Indents).
+
+html_spaces(NumSpaces) ->
+    [span(<<"space">>, <<" ">>) || _ <- lists:seq(1, NumSpaces)].
+
 
 %% No raw numbers should show up in the HTML
 parse(String = [I | _]) when is_number(I) ->
@@ -96,8 +115,9 @@ html(Forms) when is_list(Forms) ->
 html({attribute,Line,module,Mod}) ->
     [line(Line),
      '-', 'module', '(', module(Mod), ')', '.'];
-html({attribute,Line,file,{File,Line}}) ->	%This is valid anywhere.
-    [line(Line),
+html({attribute,_AttributeLine,file,{File,_FileLine}}) ->	%This is valid anywhere.
+    %% Manually set this to 0 to come before any source lines
+    [line(0),
      '%', '-', 'file', '(', span("file-literal", File), ')', '.'];
 html({attribute,Line,export,Es0}) ->
     [line(Line),

@@ -2,6 +2,7 @@ body {background: #002B36;
       color: grey;
       font-family:Menlo;
       font-size:10pt;}
+.space {display: inline-block; width: 4px;}
 .line {display: block;}
 .line_no {color: grey; font-size:8pt; display: inline-block; width:20px;}
 .eof {display: none;}
