@@ -130,7 +130,7 @@ html({attribute,Line,compile,C}) ->
      '-', 'compile', '(', span("compile-option", atom_to_list(C)), ')', '.'];
 html({attribute,Line,record,{Name,Defs}}) ->
     [line(Line),
-     '-', 'record', '(', span("record-name", atom_to_list(Name)), ',', '{',
+     '-', 'record', '(', span("atom", atom_to_list(Name)), ',', '{',
      record_defs(Defs),
      '}', ')', '.'];
 html({attribute,Line,asm,{function,_N,_A,_Code}}) ->
@@ -182,10 +182,10 @@ record_def({typed_record_field, RecordDef, Type}) ->
      type(Type)];
 record_def({record_field,Line,{atom,_La,A},Val}) ->
     [line(Line),
-     span("record_field", atom_to_list(A)), '=', expr(Val)];
+     span("record_field", a2b(A)), '=', expr(Val)];
 record_def({record_field,Line,{atom,_La,A}}) ->
     [line(Line),
-     span("record_field", atom_to_list(A))].
+     span("record_field", a2b(A))].
 
 record_type_line(RecordDef, RecordType) ->
     RecordLine = element(2, RecordDef),
@@ -271,7 +271,7 @@ pattern({tail, {cons, Line, Head, Tail}}) ->
      [pattern(Head) | pattern({tail, Tail})]];
 pattern({record,Line,Name,PatternFields}) ->
     [line(Line),
-     ['#', span("atom", atom_to_list(Name)), '{',
+     [span("record_hash", <<"#">>), span("record_name", atom_to_list(Name)), '{',
       map_separate(fun pattern_field/1, PatternFields),
       '}']];
 pattern({record_index,Line,Name,Field}) ->
@@ -465,8 +465,8 @@ type({type,Line,'fun',[{type,Lt,product, ArgTypes},TypeResult]}) ->
      lists:join(',', [type(T) || T <- ArgTypes]),
      ')', '->', type(TypeResult),
      ')'];
-type({type,Line,Atom,[]}) when is_atom(Atom) ->
-    [line(Line), Atom, '(', ')'];
+type({type,Line,nil,[]}) ->
+    [line(Line), '[', ']'];
 type({type,Line,range,[L,H]}) ->
     [line(Line), type(L), '..', type(H)];
 type({type,Line,map,any}) ->
@@ -476,7 +476,8 @@ type({type,Line,map,Ps}) ->
     [line(Line), span("map", "map"), '{', Ps1, '}'];
 type({type,Line,record,[{atom,_La,N}|Fs]}) ->
     Fs1 = field_types(Fs),
-    [line(Line), '#', N, '{', Fs1, '}'];
+    [line(Line),
+     span("record_hash", <<"#">>), span("atom", a2b(N)), '{', Fs1, '}'];
 
 %type({remote_type,Line,[{atom,Lm,M},{atom,Ln,N},As]}) ->
     %As1 = type_list(As),
@@ -494,6 +495,8 @@ type({var,Line,_V}) ->
 %type({user_type,Line,N,As}) ->
     %As1 = type_list(As),
     %{user_type,Line,N,As1};
+type({type,Line,Atom,[]}) when is_atom(Atom) ->
+    [line(Line), Atom, '(', ')'];
 % TODO A record would fit this pattern, what else?
 type(UnknownType = {type,_Line,_N,_As}) ->
     %As1 = type_list(As),
@@ -625,6 +628,8 @@ parse_symbol('==') ->
     span("double-equals", "==");
 parse_symbol('+') ->
     span("plus", "+");
+parse_symbol('*') ->
+    span("star", "*");
 parse_symbol('->') ->
     span("clause_arrow", "-&gt;");
 parse_symbol('<-') ->
@@ -645,6 +650,8 @@ parse_symbol('..') ->
     span("range", "..");
 parse_symbol('_') ->
     span("var", "_");
+parse_symbol('#') ->
+    span("hash", "#");
 parse_symbol(Line = {line, _}) ->
     Line;
 parse_symbol(eof) ->
