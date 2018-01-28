@@ -48,6 +48,7 @@
          tuple3 :: {boolean()},
          tuple4 :: {boolean(), byte()},
          union :: char() | nil(),
+         union2 :: char() | integer() | float(),
          %% user_defined :: %% TODO          %% described in Type Declarations of User-Defined Types
          term :: term(),	%% any()
          binary :: binary(), %% :: <<_:_*8>>,
@@ -75,7 +76,9 @@
          neg_integer :: neg_integer(), %% ..-1
          nonempty_improper_list :: nonempty_improper_list(tuple(), byte()), %% nonempty_improper_list(Type1, Type2)
          nonempty_maybe_improper_list1 :: nonempty_maybe_improper_list(), %% :: nonempty_maybe_improper_list(any(), any())
-         nonempty_maybe_improper_list2 :: nonempty_maybe_improper_list(byte(), char())}).
+         nonempty_maybe_improper_list2 :: nonempty_maybe_improper_list(byte(), char()),
+         record_a :: #a{},
+         record_a2 :: #a{node :: node()}}).
 
 a() ->
     _ = #a{},

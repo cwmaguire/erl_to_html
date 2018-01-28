@@ -26,7 +26,11 @@ write_html(Filename) ->
     io:format(user, "Compile result:~n~p~n", [Result]).
 
 parse_transform(Forms, Options) ->
-    io:format(user, "Parse transforming forms: ~n\t~p~n\t with Options:~n\t~p~n",
+    io:format(user, "Scanning file for indentation~n", []),
+    io:format(user, "Parse transforming forms: ~n"
+                    "\t~p~n"
+                    "\t with Options:~n"
+                    "\t~p~n",
               [Forms, Options]),
     Filename = filename(Options),
     io:format(user, "Filename: ~p~n", [Filename]),
@@ -125,7 +129,7 @@ html({error,E}) ->
 html({warning,W}) ->
     {warning,W};
 html({eof,Line}) ->
-    [line(Line), span("comment", "eof")].
+    [line(Line), span("eof")].
 
 %% -type farity_list([Farity]) -> [Farity] when Farity <= {atom(),integer()}.
 
@@ -395,6 +399,8 @@ expr({op,Line,Op,LeftArg,RightArg}) ->
 expr({remote, Line, {atom, _MLine, Module}, {atom, _FLine, Function}}) ->
     [line(Line),
      module(Module), ':', function(Function)];
+expr({nil, Line}) ->
+    [line(Line), '[', ']'];
 expr(X) ->
     pattern(X).
 
@@ -410,73 +416,81 @@ type({atom,Line,A}) ->
 type({integer,Line,I}) ->
     [line(Line), integer(I)];
 %% TODO NOPE! There's a type in here
-type(Op = {op,_, _, _TypeWhichNeedsToBeHandled}) ->
+%% Well, we'll just try it with the pattern
+type(Op = {op, _, _, _}) ->
     pattern(Op);
 type(Op = {op,_, _, _, _}) ->
     pattern(Op);
-type({type,Line,binary,[0,0]}) ->
+type({type,Line,binary,[{_, _, 0},{_, _, 0}]}) ->
     [line(Line), '<<', '>>'];
-type({type,Line,binary,[M,0]}) ->
+type({type,Line,binary,[{_, _, M}, {_, _, 0}]}) ->
     [line(Line), '<<', '_', ':', M, '>>'];
-type({type,Line,binary,[0,N]}) ->
+type({type,Line,binary,[{_, _, 0},{_, _, N}]}) ->
     [line(Line), '<<', '_', ':', '_', '*', N, '>>'];
-type({type,Line,binary,[M,N]}) ->
+type({type,Line,binary,[{_, _, M},{_, _, N}]}) ->
     [line(Line), '<<', '_', ':', M, ',', '_', ':', '_', '*', N, '>>'];
-% TODO
 type({type,Line,'fun',[]}) ->
     [line(Line), span("fun", "fun"), '(', ')'];
 type({type,Line,'fun',[{type,Lt,any},B]}) ->
     %B1 = type(B),
     %{type,Line,'fun',[{type,Lt,any},B1]};
-    [line(Line), span("fun", "fun"), '(', ')',
-     line(Lt), '(', '...', ')', '->', type(B)];
-type({type,Line,any,[]}) ->
-    [line(Line), span("any", "any"), '(', ')'];
+    [line(Line), span("fun"), '(',
+     line(Lt), '(', '...', ')', '->', type(B), ')'];
+% TODO handle a fun with product
+type({type,Line,'fun',[{type,Lt,product, ArgTypes},TypeResult]}) ->
+    [line(Line),
+     span("fun"),
+     '(',
+     line(Lt), '(',
+     lists:join(',', [type(T) || T <- ArgTypes]),
+     ')', '->', type(TypeResult),
+     ')'];
+type({type,Line,Atom,[]}) when is_atom(Atom) ->
+    [line(Line), Atom, '(', ')'];
 type({type,Line,range,[L,H]}) ->
-    L1 = type(L),
-    H1 = type(H),
-    {type,Line,range,[L1,H1]};
+    [line(Line), type(L), '..', type(H)];
 type({type,Line,map,any}) ->
-    {type,Line,map,any};
+    [line(Line), span("map", "map"), '{', '}'];
 type({type,Line,map,Ps}) ->
     Ps1 = map_pair_types(Ps),
-    {type,Line,map,Ps1};
-type({type,Line,record,[{atom,La,N}|Fs]}) ->
+    [line(Line), span("map", "map"), '{', Ps1, '}'];
+type({type,Line,record,[{atom,_La,N}|Fs]}) ->
     Fs1 = field_types(Fs),
-    {type,Line,record,[{atom,La,N}|Fs1]};
-type({remote_type,Line,[{atom,Lm,M},{atom,Ln,N},As]}) ->
-    As1 = type_list(As),
-    {remote_type,Line,[{atom,Lm,M},{atom,Ln,N},As1]};
+    [line(Line), '#', N, '{', Fs1, '}'];
+
+%type({remote_type,Line,[{atom,Lm,M},{atom,Ln,N},As]}) ->
+    %As1 = type_list(As),
+    %{remote_type,Line,[{atom,Lm,M},{atom,Ln,N},As1]};
 type({type,Line,tuple,any}) ->
-    {type,Line,tuple,any};
+    %{type,Line,tuple,any};
+    [line(Line), 'tuple', '(', ')'];
 type({type,Line,tuple,Ts}) ->
-    Ts1 = type_list(Ts),
-    {type,Line,tuple,Ts1};
+    [line(Line), '{', type_list(Ts), '}'];
 type({type,Line,union,Ts}) ->
-    Ts1 = type_list(Ts),
-    {type,Line,union,Ts1};
-type({var,Line,V}) ->
-    {var,Line,V};
-type({user_type,Line,N,As}) ->
-    As1 = type_list(As),
-    {user_type,Line,N,As1};
-type({type,Line,N,As}) ->
-    As1 = type_list(As),
-    {type,Line,N,As1}.
+    [line(Line), lists:join('|', type_list(Ts))];
+% TODO Figure out what V could be; I've only seen '_'
+type({var,Line,_V}) ->
+    [line(Line), '_'];
+%type({user_type,Line,N,As}) ->
+    %As1 = type_list(As),
+    %{user_type,Line,N,As1};
+% TODO A record would fit this pattern, what else?
+type(UnknownType = {type,_Line,_N,_As}) ->
+    %As1 = type_list(As),
+    %{type,Line,N,As1};
+    io:format(user, "Unknown type: ~p~n", [UnknownType]);
+type(UnknownType) ->
+    io:format(user, "Unknown type: ~p~n", [UnknownType]).
 
 map_pair_types([{type,Line,map_field_assoc,[K,V]}|Ps]) ->
-    K1 = type(K),
-    V1 = type(V),
-    [{type,Line,map_field_assoc,[K1,V1]}|map_pair_types(Ps)];
+    [line(Line), type(K), '=>', type(V) | map_pair_types(Ps)];
 map_pair_types([{type,Line,map_field_exact,[K,V]}|Ps]) ->
-    K1 = type(K),
-    V1 = type(V),
-    [{type,Line,map_field_exact,[K1,V1]}|map_pair_types(Ps)];
-map_pair_types([]) -> [].
+    [line(Line), type(K), ':=', type(V) | map_pair_types(Ps)];
+map_pair_types([]) ->
+    [].
 
-field_types([{type,Line,field_type,[{atom,La,A},T]}|Fs]) ->
-    T1 = type(T),
-    [{type,Line,field_type,[{atom,La,A},T1]}|field_types(Fs)];
+field_types([{type,Line,field_type,[{atom,_La,A},T]}|Fs]) ->
+    [line(Line), A, '::', type(T) | field_types(Fs)];
 field_types([]) -> [].
 
 type_list([T|Ts]) ->
@@ -602,11 +616,15 @@ parse_symbol('%') ->
 parse_symbol('::') ->
     span("record_type_op", "::");
 parse_symbol('<<') ->
-    span("binary_open", "<<");
+    span("binary_open", "&lt;&lt;");
 parse_symbol('>>') ->
-    span("binary_close", ">>");
+    span("binary_close", "&gt;&gt;");
 parse_symbol('...') ->
     span("any_elipsis", "...");
+parse_symbol('..') ->
+    span("range", "..");
+parse_symbol('_') ->
+    span("var", "_");
 parse_symbol(Line = {line, _}) ->
     Line;
 parse_symbol(eof) ->
