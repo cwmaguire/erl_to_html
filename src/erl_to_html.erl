@@ -121,7 +121,7 @@ html({attribute,_AttributeLine,file,{File,_FileLine}}) ->	%This is valid anywher
      '%', '-', 'file', '(', span("file-literal", File), ')', '.'];
 html({attribute,Line,export,Es0}) ->
     [line(Line),
-     '-', 'export', '[', farity_list(Es0), ']', '.'];
+     '-', span("export"), '[', farity_list(Es0), ']', '.'];
 html({attribute,Line,import,{Mod,Is0}}) ->
     [line(Line),
      '-', 'import', ',', module(Mod), '(', '[', farity_list(Is0), ']', ')', '.'];
@@ -262,13 +262,13 @@ pattern({cons,Line,Head,{var, _Line2, '_'}}) ->
      '[', pattern(Head), '|', '_', ']'];
 pattern({cons,Line,Head,Tail}) ->
     [line(Line),
-     '[', separate([pattern(Head) | pattern({tail, Tail})]), ']'];
+     '[', [pattern(Head), ',' | pattern({tail, Tail})], ']'];
 pattern({tail, {cons, Line, Head, {nil, _}}}) ->
     [line(Line),
      [pattern(Head)]];
 pattern({tail, {cons, Line, Head, Tail}}) ->
     [line(Line),
-     [pattern(Head) | pattern({tail, Tail})]];
+     [pattern(Head), ',' | pattern({tail, Tail})]];
 pattern({record,Line,Name,PatternFields}) ->
     [line(Line),
      [span("record_hash", <<"#">>), span("record_name", atom_to_list(Name)), '{',
@@ -489,6 +489,10 @@ type({type,Line,tuple,Ts}) ->
     [line(Line), '{', type_list(Ts), '}'];
 type({type,Line,union,Ts}) ->
     [line(Line), lists:join('|', type_list(Ts))];
+type({type,Line,list,Ts}) when is_list(Ts) ->
+    [line(Line), '[', lists:join(',', type_list(Ts)), ']'];
+type({type,Line,List,Ts}) when is_list(Ts) ->
+    [line(Line), span(a2b(List)), '(', lists:join(',', type_list(Ts)), ')'];
 % TODO Figure out what V could be; I've only seen '_'
 type({var,Line,_V}) ->
     [line(Line), '_'];
@@ -652,6 +656,8 @@ parse_symbol('_') ->
     span("var", "_");
 parse_symbol('#') ->
     span("hash", "#");
+parse_symbol('|') ->
+    span("cons", "|");
 parse_symbol(Line = {line, _}) ->
     Line;
 parse_symbol(eof) ->
