@@ -225,6 +225,8 @@ head(Patterns) ->
 %% -type pattern(Pattern) -> Pattern.
 %%  N.B. Only valid patterns are included here.
 
+%% TODO: why bother having pattern/1 _and_ expr/1
+
 pattern({var,Line,V}) ->
     [line(Line),
      var(V)];
@@ -470,10 +472,10 @@ type({type,Line,nil,[]}) ->
 type({type,Line,range,[L,H]}) ->
     [line(Line), type(L), '..', type(H)];
 type({type,Line,map,any}) ->
-    [line(Line), span("map", "map"), '{', '}'];
+    [line(Line), span("map_hash", "#"), '{', '}'];
 type({type,Line,map,Ps}) ->
     Ps1 = map_pair_types(Ps),
-    [line(Line), span("map", "map"), '{', Ps1, '}'];
+    [line(Line), span("map_hash", "#"), '{', Ps1, '}'];
 type({type,Line,record,[{atom,_La,N}|Fs]}) ->
     Fs1 = field_types(Fs),
     [line(Line),
@@ -509,12 +511,13 @@ type(UnknownType = {type,_Line,_N,_As}) ->
 type(UnknownType) ->
     io:format(user, "Unknown type: ~p~n", [UnknownType]).
 
-map_pair_types([{type,Line,map_field_assoc,[K,V]}|Ps]) ->
-    [line(Line), type(K), '=>', type(V) | map_pair_types(Ps)];
-map_pair_types([{type,Line,map_field_exact,[K,V]}|Ps]) ->
-    [line(Line), type(K), ':=', type(V) | map_pair_types(Ps)];
-map_pair_types([]) ->
-    [].
+map_pair_types(PairTypes) ->
+    lists:join(',', [pair_type(PT) || PT <- PairTypes]).
+
+pair_type({type, Line, map_field_assoc, [K, V]}) ->
+    [line(Line), type(K), '=>', type(V)];
+pair_type({type, Line, map_field_exact, [K, V]}) ->
+    [line(Line), type(K), ':=', type(V)].
 
 field_types([{type,Line,field_type,[{atom,_La,A},T]}|Fs]) ->
     [line(Line), A, '::', type(T) | field_types(Fs)];
@@ -639,7 +642,7 @@ parse_symbol('->') ->
 parse_symbol('<-') ->
     span("generator_arrow", "&lt;-");
 parse_symbol('"') ->
-    span("double-quote", "&quot;");
+    span("double_quote", "&quot;");
 parse_symbol('%') ->
     span("comment", "%");
 parse_symbol('::') ->
@@ -658,6 +661,10 @@ parse_symbol('#') ->
     span("hash", "#");
 parse_symbol('|') ->
     span("cons", "|");
+parse_symbol('=>') ->
+    span("map_field_assoc", "=&gt;");
+parse_symbol(':=') ->
+    span("map_field_exact", ":=");
 parse_symbol(Line = {line, _}) ->
     Line;
 parse_symbol(eof) ->

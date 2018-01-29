@@ -1,6 +1,6 @@
 body {
   background: #002B36;
-  color: grey;
+  color: #93a1a1;
   font-family:Menlo;
   font-size:9pt;}
 .space {
@@ -61,6 +61,18 @@ body {
   padding-left: 5px;
   padding-right: 5px;
 }
+.map_field_assoc {
+  color: #859900;
+  display: inline-block;
+  padding-left: 5px;
+  padding-right: 5px;
+}
+.map_field_exact {
+  color: #859900;
+  display: inline-block;
+  padding-left: 5px;
+  padding-right: 5px;
+}
 .record_name {
   color: #b58900;
 }
@@ -68,6 +80,15 @@ body {
   color: #859900;
 }
 .atom {
+  color: #2aa198;
+}
+.integer {
+  color: #2aa198;
+}
+.float {
+  color: #2aa198;
+}
+.double_quote {
   color: #2aa198;
 }
 .brace {
