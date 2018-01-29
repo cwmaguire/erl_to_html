@@ -436,8 +436,6 @@ type({atom,Line,A}) ->
     [line(Line), atom(A)];
 type({integer,Line,I}) ->
     [line(Line), integer(I)];
-%% TODO NOPE! There's a type in here
-%% Well, we'll just try it with the pattern
 type(Op = {op, _, _, _}) ->
     pattern(Op);
 type(Op = {op,_, _, _, _}) ->
@@ -459,7 +457,6 @@ type({type,Line,'fun',[]}) ->
 type({type,Line,'fun',[{type,Lt,any},B]}) ->
     [line(Line), span("fun"), '(',
      line(Lt), '(', '...', ')', '->', type(B), ')'];
-% TODO handle a fun with product
 type({type,Line,'fun',[{type,Lt,product, ArgTypes},TypeResult]}) ->
     [line(Line),
      span("fun"),
