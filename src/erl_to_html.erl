@@ -257,13 +257,13 @@ pattern({tuple,Line,Patterns}) ->
 %% so this is a list of one item.
 pattern({cons,Line,Head,{nil, _}}) ->
     [line(Line),
-     '[', pattern(Head), ']'];
+     '[', expr(Head), ']'];
 pattern({cons,Line,Head,{var, _Line2, '_'}}) ->
     [line(Line),
-     '[', pattern(Head), '|', '_', ']'];
+     '[', expr(Head), '|', '_', ']'];
 pattern({cons,Line,Head,Tail}) ->
     [line(Line),
-     '[', [pattern(Head), ',' | pattern({tail, Tail})], ']'];
+     '[', [expr(Head), ',' | expr({tail, Tail})], ']'];
 pattern({tail, {cons, Line, Head, {nil, _}}}) ->
     [line(Line),
      [pattern(Head)]];
@@ -293,7 +293,10 @@ pattern({op,Line,Op,A}) ->
      span("operator", atom_to_list(Op)), pattern(A)];
 pattern({op,Line,Op,L,R}) ->
     [line(Line),
-     pattern(L), span("operator", atom_to_list(Op)), pattern(R)].
+     pattern(L), span("operator", atom_to_list(Op)), pattern(R)];
+pattern(UnknownPattern) ->
+    io:format(user, "Unknown pattern:~n~p~n", [UnknownPattern]),
+    span("error").
 
 bin_element({bin_element,Line,Expression,Size1,Type1}) ->
     Size2 = case Size1 of
@@ -384,14 +387,14 @@ expr({'fun',Line,Body}) ->
          function(Fun), '/', arity(Arity)];
 	{function,M,F,A} when is_atom(M), is_atom(F), is_integer(A) ->
         [line(Line),
-         module(M), ':', function(F), '/', arity(A)];
+         span(<<"module">>, a2b(M)), ':', function(F), '/', arity(A)];
 	{function,M0,F0,A0} ->
 	    %% R15: fun M:F/A with variables.
 	    M = expr(M0),
 	    F = expr(F0),
 	    A = expr(A0),
         [line(Line),
-         module(M),
+         span(<<"module">>, a2b(M)),
          ':', span("function", F),
          '/', span("arity", A)]
     end;
@@ -419,10 +422,11 @@ expr({op,Line,Op,LeftArg,RightArg}) ->
      expr(LeftArg), Op, expr(RightArg)];
 expr({remote, Line, {atom, _MLine, Module}, {atom, _FLine, Function}}) ->
     [line(Line),
-     module(Module), ':', function(Function)];
+     span(<<"module">>, a2b(Module)), ':', function(Function)];
 expr({nil, Line}) ->
     [line(Line), '[', ']'];
 expr(X) ->
+    io:format(user, "expr/1 punting to pattern/1:~n~p~n", [X]),
     pattern(X).
 
 %% -type lc_bc_qual([Qualifier]) -> [Qualifier].

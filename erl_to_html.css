@@ -29,7 +29,7 @@ body {
 .float,
 .double_quote,
 .module-literal,
-.function,
+/*.function,*/
 .arity {
   color: #2aa198;
 }
