@@ -1,4 +1,3 @@
-%% ``The contents of this file are subject to the Erlang Public License,
 %% Version 1.1, (the "License"); you may not use this file except in
 %% compliance with the License. You should have received a copy of the
 %% Erlang Public License along with this software. If not, it can be
@@ -27,14 +26,23 @@ write_html(Filename) ->
     io:format(user, "Compile result:~n~p~n", [Result]).
 
 parse_transform(Forms, Options) ->
-    io:format(user, "Parse transforming forms: ~n\t~p~n\t with Options:~n\t~p~n",
-              [Forms, Options]),
     Filename = filename(Options),
-    io:format(user, "Filename: ~p~n", [Filename]),
-    HTML = lines(parse(html(Forms))),
+    io:format(user, "Scanning ~p for indentation~n", [Filename]),
+    Indents = get_indents:indents(Filename),
+    io:format(user, "Indents = ~p~n", [Indents]),
+
+    io:format(user, "Parse transforming forms: ~n"
+                    "\t~p~n"
+                    "\t with Options:~n"
+                    "\t~p~n",
+              [Forms, Options]),
+
+    HtmlFilename = html_filename(Filename),
+    io:format(user, "Filename: ~p~n", [HtmlFilename]),
+    HTML = lines(parse(html(Forms)), Indents),
     %io:format(user, "HTML = ~p~n", [HTML]),
-    {ok, HtmlFile} = file:open(Filename, [write]),
-    file:write(HtmlFile, HTML),
+    {ok, HtmlFile} = file:open(HtmlFilename, [write]),
+    file:write(HtmlFile, [HTML, <<"\n">>]),
     Forms.
 
 filename(Options) ->
@@ -42,35 +50,48 @@ filename(Options) ->
         [] ->
             "out.html";
         [Filename | _] ->
-            HtmlFileName = filename:rootname(Filename) ++ ".html",
-            io:format(user, "HTML file: ~p~n", [HtmlFileName]),
-            HtmlFileName
+            Filename
     end.
 
+html_filename(Filename) ->
+    filename:rootname(Filename) ++ ".html".
+
 %% walk the tree and wrap lines in spans
-lines(Tree) ->
-    {Tree2, _} = lines([], Tree, 1),
+lines(Tree, Indents) ->
+    {Tree2, _} = lines([], Tree, 0, Indents),
     StartLine = [<<"--><span class=\"line\">">>,
                  <<"<span class=\"line_no\">">>,
-                 <<"1">>,
+                 <<"0">>,
+                 html_spaces(maps:get(1, Indents, 0)),
                  <<"</span><!--\n">>],
     [StartLine, Tree2, <<"</span>">>].
 
-lines(Tree, [], Line)  ->
+lines(Tree, [], Line, _Indents)  ->
     {lists:reverse(Tree), Line};
-lines(Tree, [Head | Rest], Line) when is_list(Head) ->
-    {SubTree, CurrLine} = lines([], Head, Line),
-    lines([SubTree | Tree], Rest, CurrLine);
-lines(Tree, [{line, Line} | Rest], Line) ->
+lines(Tree, [Head | Rest], Line, Indents) when is_list(Head) ->
+    {SubTree, CurrLine} = lines([], Head, Line, Indents),
+    lines([SubTree | Tree], Rest, CurrLine, Indents);
+lines(Tree, [{line, Line} | Rest], Line, Indents) ->
     % same line
-    lines(Tree, Rest, Line);
-lines(Tree, [{line, NewLine} | Rest], Line) ->
-    StartLine = [<<"--></span><span class=\"line\"><span class=\"line_no\">">>,
+    lines(Tree, Rest, Line, Indents);
+lines(Tree, [{line, NewLine} | Rest], Line, Indents) ->
+    StartLine = [_EndPrevLine = <<"--></span>">>,
+                 <<"<span class=\"line\">">>,
+                 <<"<span class=\"line_no\">">>,
                  i2b(Line + 1),
-                 <<"</span><!--\n">>],
-    lines([StartLine | Tree], [{line, NewLine} | Rest], Line + 1);
-lines(Tree, [Head | Rest], Line) ->
-    lines([Head | Tree], Rest, Line).
+                 <<"</span>">>,
+                 <<"<!--\n">>,
+                 html_spaces(maps:get(NewLine, Indents, 0))],
+    lines([StartLine | Tree],
+          [{line, NewLine} | Rest],
+          Line + 1,
+          Indents);
+lines(Tree, [Head | Rest], Line, Indents) ->
+    lines([Head | Tree], Rest, Line, Indents).
+
+html_spaces(NumSpaces) ->
+    [span(<<"space">>, <<" ">>) || _ <- lists:seq(1, NumSpaces)].
+
 
 %% No raw numbers should show up in the HTML
 parse(String = [I | _]) when is_number(I) ->
@@ -93,12 +114,13 @@ html(Forms) when is_list(Forms) ->
 html({attribute,Line,module,Mod}) ->
     [line(Line),
      '-', 'module', '(', module(Mod), ')', '.'];
-html({attribute,Line,file,{File,Line}}) ->	%This is valid anywhere.
-    [line(Line),
+html({attribute,_AttributeLine,file,{File,_FileLine}}) ->	%This is valid anywhere.
+    %% Manually set this to 0 to come before any source lines
+    [line(0),
      '%', '-', 'file', '(', span("file-literal", File), ')', '.'];
 html({attribute,Line,export,Es0}) ->
     [line(Line),
-     '-', 'export', '[', farity_list(Es0), ']', '.'];
+     '-', span("export"), '[', farity_list(Es0), ']', '.'];
 html({attribute,Line,import,{Mod,Is0}}) ->
     [line(Line),
      '-', 'import', ',', module(Mod), '(', '[', farity_list(Is0), ']', ')', '.'];
@@ -107,7 +129,7 @@ html({attribute,Line,compile,C}) ->
      '-', 'compile', '(', span("compile-option", atom_to_list(C)), ')', '.'];
 html({attribute,Line,record,{Name,Defs}}) ->
     [line(Line),
-     '-', 'record', '(', span("record-name", atom_to_list(Name)), ',', '{',
+     '-', 'record', '(', span("atom", atom_to_list(Name)), ',', '{',
      record_defs(Defs),
      '}', ')', '.'];
 html({attribute,Line,asm,{function,_N,_A,_Code}}) ->
@@ -126,7 +148,7 @@ html({error,E}) ->
 html({warning,W}) ->
     {warning,W};
 html({eof,Line}) ->
-    [line(Line), span("comment", "eof")].
+    [line(Line), span("eof")].
 
 %% -type farity_list([Farity]) -> [Farity] when Farity <= {atom(),integer()}.
 
@@ -143,12 +165,37 @@ farity({Name, Arity}) ->
 record_defs(Defs) ->
     separate(lists:map(fun record_def/1, Defs)).
 
+%% I think integer and atom are the only other values
+%% for the type field:
+%% {atom, Line, foo}
+%% {integer, Line, 1}
+%% {type, Line, Type, ListOfSubTypes}
+%%
+%% fun((...) -> any()) is wierd because the (...) is
+%% the any type except without the ListOfSubTypes
+%% e.g. {type, Line, any} instead of {type, Line, any, []}
+
+record_def({typed_record_field, RecordDef, Type}) ->
+    [record_def(RecordDef),
+     record_type_line(RecordDef, Type),
+     type(Type)];
 record_def({record_field,Line,{atom,_La,A},Val}) ->
     [line(Line),
-     span("record_field", atom_to_list(A)), '=', expr(Val)];
+     span("record_field", a2b(A)), '=', expr(Val)];
 record_def({record_field,Line,{atom,_La,A}}) ->
     [line(Line),
-     span("record_field", atom_to_list(A))].
+     span("record_field", a2b(A))].
+
+record_type_line(RecordDef, RecordType) ->
+    RecordLine = element(2, RecordDef),
+    TypeLine = element(2, RecordType),
+    Line = case TypeLine - RecordLine of
+        X when X > 1 ->
+            RecordLine + 1;
+        _ ->
+            RecordLine
+    end,
+    [line(Line), '::'].
 
 catch_clause({clause, Line, Exception, GuardGroups, Body}) ->
     [{tuple, _Line, [Class, ExceptionPattern, _Wild]}] = Exception,
@@ -177,6 +224,8 @@ head(Patterns) ->
 %% -type pattern(Pattern) -> Pattern.
 %%  N.B. Only valid patterns are included here.
 
+%% TODO: why bother having pattern/1 _and_ expr/1
+
 pattern({var,Line,V}) ->
     [line(Line),
      var(V)];
@@ -203,7 +252,7 @@ pattern({nil,Line}) ->
      span("list", ['[', ']'])];
 pattern({tuple,Line,Patterns}) ->
     [line(Line),
-     span("tuple", ['{', map_separate(fun pattern/1, Patterns), '}'])];
+     ['{', map_separate(fun pattern/1, Patterns), '}']];
 %% There's a special case for all cons's after the first: {tail, _}
 %% so this is a list of one item.
 pattern({cons,Line,Head,{nil, _}}) ->
@@ -214,16 +263,16 @@ pattern({cons,Line,Head,{var, _Line2, '_'}}) ->
      '[', pattern(Head), '|', '_', ']'];
 pattern({cons,Line,Head,Tail}) ->
     [line(Line),
-     '[', separate([pattern(Head) | pattern({tail, Tail})]), ']'];
+     '[', [pattern(Head), ',' | pattern({tail, Tail})], ']'];
 pattern({tail, {cons, Line, Head, {nil, _}}}) ->
     [line(Line),
      [pattern(Head)]];
 pattern({tail, {cons, Line, Head, Tail}}) ->
     [line(Line),
-     [pattern(Head) | pattern({tail, Tail})]];
+     [pattern(Head), ',' | pattern({tail, Tail})]];
 pattern({record,Line,Name,PatternFields}) ->
     [line(Line),
-     ['#', span("atom", atom_to_list(Name)), '{',
+     [span("record_hash", <<"#">>), span("record_name", atom_to_list(Name)), '{',
       map_separate(fun pattern_field/1, PatternFields),
       '}']];
 pattern({record_index,Line,Name,Field}) ->
@@ -371,11 +420,111 @@ expr({op,Line,Op,LeftArg,RightArg}) ->
 expr({remote, Line, {atom, _MLine, Module}, {atom, _FLine, Function}}) ->
     [line(Line),
      module(Module), ':', function(Function)];
+expr({nil, Line}) ->
+    [line(Line), '[', ']'];
 expr(X) ->
     pattern(X).
 
 %% -type lc_bc_qual([Qualifier]) -> [Qualifier].
 %%  Allow filters to be both guard tests and general expressions.
+
+% No idea what ann_type is
+type({ann_type,Line,[{var,Lv,V},T]}) ->
+    T1 = type(T),
+    {ann_type,Line,[{var,Lv,V},T1]};
+type({atom,Line,A}) ->
+    [line(Line), atom(A)];
+type({integer,Line,I}) ->
+    [line(Line), integer(I)];
+type(Op = {op, _, _, _}) ->
+    pattern(Op);
+type(Op = {op,_, _, _, _}) ->
+    pattern(Op);
+type({type,Line,binary,[{_, _, 0},{_, _, 0}]}) ->
+    [line(Line), '<<', '>>'];
+type({type,Line,binary,[{_, _, M}, {_, _, 0}]}) ->
+    [line(Line),
+     '<<', '_', ':', span("integer", i2b(M)), '>>'];
+type({type,Line,binary,[{_, _, 0},{_, _, N}]}) ->
+    [line(Line),
+     '<<', '_', ':', '_', '*', span("integer", i2b(N)), '>>'];
+type({type,Line,binary,[{_, _, M},{_, _, N}]}) ->
+    [line(Line),
+     '<<', '_', ':', span("integer", i2b(M)), ',',
+     '_', ':', '_', '*', span("integer", i2b(N)), '>>'];
+type({type,Line,'fun',[]}) ->
+    [line(Line), span("fun", "fun"), '(', ')'];
+type({type,Line,'fun',[{type,Lt,any},B]}) ->
+    [line(Line), span("fun"), '(',
+     line(Lt), '(', '...', ')', '->', type(B), ')'];
+type({type,Line,'fun',[{type,Lt,product, ArgTypes},TypeResult]}) ->
+    [line(Line),
+     span("fun"),
+     '(',
+     line(Lt), '(',
+     lists:join(',', [type(T) || T <- ArgTypes]),
+     ')', '->', type(TypeResult),
+     ')'];
+type({type,Line,nil,[]}) ->
+    [line(Line), '[', ']'];
+type({type,Line,range,[L,H]}) ->
+    [line(Line), type(L), '..', type(H)];
+type({type,Line,map,any}) ->
+    [line(Line), span("map_hash", "#"), '{', '}'];
+type({type,Line,map,Ps}) ->
+    Ps1 = map_pair_types(Ps),
+    [line(Line), span("map_hash", "#"), '{', Ps1, '}'];
+type({type,Line,record,[{atom,_La,N}|Fs]}) ->
+    Fs1 = field_types(Fs),
+    [line(Line),
+     span("record_hash", <<"#">>), span("record_name", a2b(N)), '{', Fs1, '}'];
+
+%type({remote_type,Line,[{atom,Lm,M},{atom,Ln,N},As]}) ->
+    %As1 = type_list(As),
+    %{remote_type,Line,[{atom,Lm,M},{atom,Ln,N},As1]};
+type({type,Line,tuple,any}) ->
+    %{type,Line,tuple,any};
+    [line(Line), 'tuple', '(', ')'];
+type({type,Line,tuple,Ts}) ->
+    [line(Line), '{', type_list(Ts), '}'];
+type({type,Line,union,Ts}) ->
+    [line(Line), lists:join('|', type_list(Ts))];
+type({type,Line,list,Ts}) when is_list(Ts) ->
+    [line(Line), '[', lists:join(',', type_list(Ts)), ']'];
+type({type,Line,List,Ts}) when is_list(Ts) ->
+    [line(Line), span(a2b(List)), '(', lists:join(',', type_list(Ts)), ')'];
+% TODO Figure out what V could be; I've only seen '_'
+type({var, Line, _V}) ->
+    [line(Line), '_'];
+%type({user_type,Line,N,As}) ->
+    %As1 = type_list(As),
+    %{user_type,Line,N,As1};
+type({type,Line,Atom,[]}) when is_atom(Atom) ->
+    [line(Line), Atom, '(', ')'];
+% TODO A record would fit this pattern, what else?
+type(UnknownType = {type,_Line,_N,_As}) ->
+    %As1 = type_list(As),
+    %{type,Line,N,As1};
+    io:format(user, "Unknown type: ~p~n", [UnknownType]);
+type(UnknownType) ->
+    io:format(user, "Unknown type: ~p~n", [UnknownType]).
+
+map_pair_types(PairTypes) ->
+    lists:join(',', [pair_type(PT) || PT <- PairTypes]).
+
+pair_type({type, Line, map_field_assoc, [K, V]}) ->
+    [line(Line), type(K), '=>', type(V)];
+pair_type({type, Line, map_field_exact, [K, V]}) ->
+    [line(Line), type(K), ':=', type(V)].
+
+field_types([{type,Line,field_type,[{atom,_La,A},T]}|Fs]) ->
+    [line(Line), A, '::', type(T) | field_types(Fs)];
+field_types([]) -> [].
+
+type_list([T|Ts]) ->
+    T1 = type(T),
+    [T1|type_list(Ts)];
+type_list([]) -> [].
 
 %% This is a list of generators _or_ filters
 %% which are simply expressions
@@ -484,14 +633,36 @@ parse_symbol('==') ->
     span("double-equals", "==");
 parse_symbol('+') ->
     span("plus", "+");
+parse_symbol('*') ->
+    span("star", "*");
 parse_symbol('->') ->
     span("clause_arrow", "-&gt;");
 parse_symbol('<-') ->
     span("generator_arrow", "&lt;-");
 parse_symbol('"') ->
-    span("double-quote", "&quot;");
+    span("double_quote", "&quot;");
 parse_symbol('%') ->
     span("comment", "%");
+parse_symbol('::') ->
+    span("record_type_op", "::");
+parse_symbol('<<') ->
+    span("binary_open", "&lt;&lt;");
+parse_symbol('>>') ->
+    span("binary_close", "&gt;&gt;");
+parse_symbol('...') ->
+    span("any_elipsis", "...");
+parse_symbol('..') ->
+    span("range", "..");
+parse_symbol('_') ->
+    span("var", "_");
+parse_symbol('#') ->
+    span("hash", "#");
+parse_symbol('|') ->
+    span("cons", "|");
+parse_symbol('=>') ->
+    span("map_field_assoc", "=&gt;");
+parse_symbol(':=') ->
+    span("map_field_exact", ":=");
 parse_symbol(Line = {line, _}) ->
     Line;
 parse_symbol(eof) ->
@@ -505,10 +676,8 @@ line(Line) ->
 separate(List) when is_list(List) ->
     separate(',', List).
 
-separate(_, []) ->
-    [];
-separate(Separator, [Hd | Tl]) ->
-    [Hd | [[Separator,E] || E <- Tl]].
+separate(Separator, List) ->
+    lists:join(Separator, List).
 
 map_separate(Fun, List) ->
     map_separate(',', Fun, List).
