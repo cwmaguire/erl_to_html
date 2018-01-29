@@ -82,7 +82,6 @@ lines(Tree, [{line, NewLine} | Rest], Line, Indents) ->
                  <<"</span>">>,
                  <<"<!--\n">>,
                  html_spaces(maps:get(NewLine, Indents, 0))],
-    %io:format("Calling lines again with ~p~n", [Line + 1]),
     lines([StartLine | Tree],
           [{line, NewLine} | Rest],
           Line + 1,
@@ -253,7 +252,7 @@ pattern({nil,Line}) ->
      span("list", ['[', ']'])];
 pattern({tuple,Line,Patterns}) ->
     [line(Line),
-     span("tuple", ['{', map_separate(fun pattern/1, Patterns), '}'])];
+     ['{', map_separate(fun pattern/1, Patterns), '}']];
 %% There's a special case for all cons's after the first: {tail, _}
 %% so this is a list of one item.
 pattern({cons,Line,Head,{nil, _}}) ->
@@ -458,8 +457,6 @@ type({type,Line,binary,[{_, _, M},{_, _, N}]}) ->
 type({type,Line,'fun',[]}) ->
     [line(Line), span("fun", "fun"), '(', ')'];
 type({type,Line,'fun',[{type,Lt,any},B]}) ->
-    %B1 = type(B),
-    %{type,Line,'fun',[{type,Lt,any},B1]};
     [line(Line), span("fun"), '(',
      line(Lt), '(', '...', ')', '->', type(B), ')'];
 % TODO handle a fun with product
@@ -500,7 +497,7 @@ type({type,Line,list,Ts}) when is_list(Ts) ->
 type({type,Line,List,Ts}) when is_list(Ts) ->
     [line(Line), span(a2b(List)), '(', lists:join(',', type_list(Ts)), ')'];
 % TODO Figure out what V could be; I've only seen '_'
-type({var,Line,_V}) ->
+type({var, Line, _V}) ->
     [line(Line), '_'];
 %type({user_type,Line,N,As}) ->
     %As1 = type_list(As),
@@ -682,10 +679,8 @@ line(Line) ->
 separate(List) when is_list(List) ->
     separate(',', List).
 
-separate(_, []) ->
-    [];
-separate(Separator, [Hd | Tl]) ->
-    [Hd | [[Separator,E] || E <- Tl]].
+separate(Separator, List) ->
+    lists:join(Separator, List).
 
 map_separate(Fun, List) ->
     map_separate(',', Fun, List).
