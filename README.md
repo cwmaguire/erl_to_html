@@ -1,13 +1,16 @@
 # erl_to_html
 Using a parse transform and erl_id_trans.erl to convert erlang code to HTML with spans for _everything_.
 
+## Compatibility
+I'm only testing it with Erlang 20
+
 ## How to use it
 1. make
 1. erl
 1. erl> l(erl_to_html).
 1. erl> erl_to_html:write_html("my/source/file.erl").
 1. C-c, C-c
-1. cat my_html_header my/source/file.html my_html_footer > my_file.html
+1. cat html_header my/source/file.html html_footer > my_file.html
 
 ## Tests
 make tests
