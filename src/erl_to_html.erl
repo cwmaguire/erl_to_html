@@ -446,11 +446,15 @@ type(Op = {op,_, _, _, _}) ->
 type({type,Line,binary,[{_, _, 0},{_, _, 0}]}) ->
     [line(Line), '<<', '>>'];
 type({type,Line,binary,[{_, _, M}, {_, _, 0}]}) ->
-    [line(Line), '<<', '_', ':', M, '>>'];
+    [line(Line),
+     '<<', '_', ':', span("integer", i2b(M)), '>>'];
 type({type,Line,binary,[{_, _, 0},{_, _, N}]}) ->
-    [line(Line), '<<', '_', ':', '_', '*', N, '>>'];
+    [line(Line),
+     '<<', '_', ':', '_', '*', span("integer", i2b(N)), '>>'];
 type({type,Line,binary,[{_, _, M},{_, _, N}]}) ->
-    [line(Line), '<<', '_', ':', M, ',', '_', ':', '_', '*', N, '>>'];
+    [line(Line),
+     '<<', '_', ':', span("integer", i2b(M)), ',',
+     '_', ':', '_', '*', span("integer", i2b(N)), '>>'];
 type({type,Line,'fun',[]}) ->
     [line(Line), span("fun", "fun"), '(', ')'];
 type({type,Line,'fun',[{type,Lt,any},B]}) ->
