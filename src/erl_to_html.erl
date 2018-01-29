@@ -477,7 +477,7 @@ type({type,Line,map,Ps}) ->
 type({type,Line,record,[{atom,_La,N}|Fs]}) ->
     Fs1 = field_types(Fs),
     [line(Line),
-     span("record_hash", <<"#">>), span("atom", a2b(N)), '{', Fs1, '}'];
+     span("record_hash", <<"#">>), span("record_name", a2b(N)), '{', Fs1, '}'];
 
 %type({remote_type,Line,[{atom,Lm,M},{atom,Ln,N},As]}) ->
     %As1 = type_list(As),
