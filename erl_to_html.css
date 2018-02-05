@@ -34,7 +34,8 @@ body {
   color: #2aa198;
 }
 
-.var {
+.var,
+.variable {
   color: #268bd2;
 }
 
@@ -47,7 +48,10 @@ body {
 .binary_open,
 .binary_close,
 .slash,
-.star {
+.star,
+.export,
+.dash,
+.module {
   color: #859900;
 }
 
@@ -68,7 +72,8 @@ body {
 }
 
 .brace,
-.bracket {
+.bracket,
+.control_sequence {
   color: #dc322f;
 }
 

@@ -12,16 +12,18 @@
 %% Portions created by Ericsson are Copyright 1999, Ericsson Utvecklings
 %% AB. All Rights Reserved.''
 %%
-%%     $Id$
-%%
 -module(erl_to_html).
 
 -export([write_html/1]).
 -export([parse_transform/2]).
+-export([escape/1]).
+-export([parse_control_sequences/1]).
+-export([pcs/2]).
 
 write_html(Filename) ->
     io:format(user, "Compiling ~p~n", [Filename]),
-    Result = compile:file(Filename, [{parse_transform, ?MODULE},
+    Result = compile:file(Filename, [report_errors,
+                                     {parse_transform, ?MODULE},
                                      {d, filename, Filename}]),
     io:format(user, "Compile result:~n~p~n", [Result]).
 
@@ -29,20 +31,25 @@ parse_transform(Forms, Options) ->
     Filename = filename(Options),
     io:format(user, "Scanning ~p for indentation~n", [Filename]),
     Indents = get_indents:indents(Filename),
-    io:format(user, "Indents = ~p~n", [Indents]),
+    %io:format(user, "Indents = ~p~n", [Indents]),
 
-    io:format(user, "Parse transforming forms: ~n"
-                    "\t~p~n"
-                    "\t with Options:~n"
-                    "\t~p~n",
-              [Forms, Options]),
+    %io:format(user, "Parse transforming forms: ~n"
+                    %"\t~p~n"
+                    %"\t with Options:~n"
+                    %"\t~p~n",
+              %[Forms, Options]),
 
     HtmlFilename = html_filename(Filename),
     io:format(user, "Filename: ~p~n", [HtmlFilename]),
-    HTML = lines(parse(html(Forms)), Indents),
+    HTML = parse(lines(html(Forms), Indents)),
     %io:format(user, "HTML = ~p~n", [HTML]),
     {ok, HtmlFile} = file:open(HtmlFilename, [write]),
-    file:write(HtmlFile, [HTML, <<"\n">>]),
+    case file:write(HtmlFile, [HTML, <<"\n">>]) of
+        ok ->
+            io:format(user, "Write successful~n", []);
+        Error ->
+            io:format(user, "Write failed: ~p~n", [Error])
+    end,
     Forms.
 
 filename(Options) ->
@@ -59,12 +66,12 @@ html_filename(Filename) ->
 %% walk the tree and wrap lines in spans
 lines(Tree, Indents) ->
     {Tree2, _} = lines([], Tree, 0, Indents),
-    StartLine = [<<"--><span class=\"line\">">>,
-                 <<"<span class=\"line_no\">">>,
-                 <<"0">>,
+    StartLine = [{no_parse, <<"--><span class=\"line\">">>},
+                 {no_parse, <<"<span class=\"line_no\">">>},
+                 {no_parse, <<"0">>},
                  html_spaces(maps:get(1, Indents, 0)),
-                 <<"</span><!--\n">>],
-    [StartLine, Tree2, <<"</span>">>].
+                 {no_parse, <<"</span><!--\n">>}],
+    [StartLine, Tree2, {no_parse, <<"</span>">>}].
 
 lines(Tree, [], Line, _Indents)  ->
     {lists:reverse(Tree), Line};
@@ -75,12 +82,12 @@ lines(Tree, [{line, Line} | Rest], Line, Indents) ->
     % same line
     lines(Tree, Rest, Line, Indents);
 lines(Tree, [{line, NewLine} | Rest], Line, Indents) ->
-    StartLine = [_EndPrevLine = <<"--></span>">>,
-                 <<"<span class=\"line\">">>,
-                 <<"<span class=\"line_no\">">>,
+    StartLine = [_EndPrevLine = {no_parse, <<"--></span>">>},
+                 {no_parse, <<"<span class=\"line\">">>},
+                 {no_parse, <<"<span class=\"line_no\">">>},
                  i2b(Line + 1),
-                 <<"</span>">>,
-                 <<"<!--\n">>,
+                 {no_parse, <<"</span>">>},
+                 {no_parse, <<"<!--\n">>},
                  html_spaces(maps:get(NewLine, Indents, 0))],
     lines([StartLine | Tree],
           [{line, NewLine} | Rest],
@@ -90,18 +97,40 @@ lines(Tree, [Head | Rest], Line, Indents) ->
     lines([Head | Tree], Rest, Line, Indents).
 
 html_spaces(NumSpaces) ->
-    [span(<<"space">>, <<" ">>) || _ <- lists:seq(1, NumSpaces)].
+    [span({no_parse, <<"space">>}, {no_parse, <<"&nbsp;">>}) || _ <- lists:seq(1, NumSpaces)].
 
 
 %% No raw numbers should show up in the HTML
 parse(String = [I | _]) when is_number(I) ->
-    String;
+    escape(String);
+parse(Binary) when is_binary(Binary) ->
+    escape(Binary);
 parse(List) when is_list(List) ->
     lists:map(fun parse/1, List);
+parse({no_parse, Binary}) when is_binary(Binary) ->
+    Binary;
+parse({no_parse, NotBinary}) ->
+    NotBinary;
 parse(Term) when is_atom(Term); is_tuple(Term) ->
-    parse_symbol(Term);
+    parse(parse_symbol(Term));
 parse(Other) ->
+    io:format(user, "Parsing other = ~p~n", [Other]),
     Other.
+
+escape(String0) ->
+    Lt = <<"<">>,
+    HtmlLt = <<"&lt;">>,
+    Gt = <<">">>,
+    HtmlGt = <<"&gt;">>,
+    Quote = <<"\"">>,
+    HtmlQuote = <<"&quot;">>,
+    Replacements = [{Gt, HtmlGt},
+                    {Lt, HtmlLt},
+                    {Quote, HtmlQuote}],
+
+    lists:foldl(fun({Old, New}, String) ->
+                    string:replace(String, Old, New, all)
+                end, String0, Replacements).
 
 html(Forms) when is_list(Forms) ->
     [html(Form) || Form <- Forms];
@@ -117,7 +146,7 @@ html({attribute,Line,module,Mod}) ->
 html({attribute,_AttributeLine,file,{File,_FileLine}}) ->	%This is valid anywhere.
     %% Manually set this to 0 to come before any source lines
     [line(0),
-     '%', '-', 'file', '(', span("file-literal", File), ')', '.'];
+     '%', '-', 'file', '(', span(<<"file-literal">>, File), ')', '.'];
 html({attribute,Line,export,Es0}) ->
     [line(Line),
      '-', span("export"), '[', farity_list(Es0), ']', '.'];
@@ -126,7 +155,7 @@ html({attribute,Line,import,{Mod,Is0}}) ->
      '-', 'import', ',', module(Mod), '(', '[', farity_list(Is0), ']', ')', '.'];
 html({attribute,Line,compile,C}) ->
     [line(Line),
-     '-', 'compile', '(', span("compile-option", atom_to_list(C)), ')', '.'];
+     '-', 'compile', '(', span(<<"compile-option">>, atom_to_list(C)), ')', '.'];
 html({attribute,Line,record,{Name,Defs}}) ->
     [line(Line),
      '-', 'record', '(', span("atom", atom_to_list(Name)), ',', '{',
@@ -139,16 +168,13 @@ html({attribute,Line,_Attr,_Val}) ->		%The general attribute.
 html({function,Line,Name,_Arity,Clauses}) ->
     [line(Line),
      separate(';', lists:map(fun(Clause) -> clause(Name, Clause) end, Clauses)), '.'];
-% Mnemosyne, ignore...
-html({rule,Line,Name,Arity,Body}) ->
-    {rule,Line,Name,Arity,Body}; % Dont dig into this
-%% Extra forms from the parser.
+% TODO figure out how to reproduce these
 html({error,E}) ->
     {error,E};
 html({warning,W}) ->
     {warning,W};
 html({eof,Line}) ->
-    [line(Line), span("eof")].
+    [line(Line), span(<<"eof">>)].
 
 %% -type farity_list([Farity]) -> [Farity] when Farity <= {atom(),integer()}.
 
@@ -200,7 +226,7 @@ record_type_line(RecordDef, RecordType) ->
 catch_clause({clause, Line, Exception, GuardGroups, Body}) ->
     [{tuple, _Line, [Class, ExceptionPattern, _Wild]}] = Exception,
     [line(Line),
-     pattern(Class), ':', pattern(ExceptionPattern),
+     expr(Class), ':', expr(ExceptionPattern),
      separate(';', lists:map(fun guard_group/1, GuardGroups)),
      '->',
      separate(lists:map(fun expr/1, Body))].
@@ -210,134 +236,35 @@ clause({clause, Line, Head, GuardGroups, Body}) ->
 
 clause(Name, {clause,Line,Head,GuardGroups,Body}) ->
     [line(Line),
-     span("function", atom_to_list(Name)),
+     span(<<"function">>, atom_to_list(Name)),
      head(Head),
      separate(';', lists:map(fun guard_group/1, GuardGroups)),
      '->',
      separate(lists:map(fun expr/1, Body))].
 
+case_clause({clause, Line, [Head], GuardGroups, Body}) ->
+    [line(Line),
+     expr(Head),
+     case GuardGroups of
+         [] ->
+             [];
+         _ ->
+             F = fun guard_group/1,
+             ['when',
+              separate(';', lists:map(F, GuardGroups))]
+     end,
+     '->',
+     separate(lists:map(fun expr/1, Body))].
+
 %% -type head([Pattern]) -> [Pattern].
 
-head(Patterns) ->
-    ['(', separate(lists:map(fun pattern/1, Patterns)), ')'].
+head(Expressions) ->
+    ['(', separate(lists:map(fun expr/1, Expressions)), ')'].
 
 %% -type pattern(Pattern) -> Pattern.
 %%  N.B. Only valid patterns are included here.
 
 %% TODO: why bother having pattern/1 _and_ expr/1
-
-pattern({var,Line,V}) ->
-    [line(Line),
-     var(V)];
-pattern({match,Line,Left,Right}) ->
-    [line(Line),
-     span("match", [pattern(Left), '=', pattern(Right)])];
-pattern({integer,Line,I}) ->
-    [line(Line),
-     integer(I)];
-pattern({char,Line,C}) ->
-    [line(Line),
-     span("char", [C])];
-pattern({float,Line,F}) ->
-    [line(Line),
-     span("float", io_lib:format("~w", [F]))];
-pattern({atom,Line,A}) ->
-    [line(Line),
-     span("atom", atom_to_list(A))];
-pattern({string,Line,S}) ->
-    [line(Line),
-     '"', span("string", S), '"'];
-pattern({nil,Line}) ->
-    [line(Line),
-     span("list", ['[', ']'])];
-pattern({tuple,Line,Patterns}) ->
-    [line(Line),
-     ['{', map_separate(fun pattern/1, Patterns), '}']];
-%% There's a special case for all cons's after the first: {tail, _}
-%% so this is a list of one item.
-pattern({cons,Line,Head,{nil, _}}) ->
-    [line(Line),
-     '[', expr(Head), ']'];
-pattern({cons,Line,Head,{var, _Line2, '_'}}) ->
-    [line(Line),
-     '[', expr(Head), '|', '_', ']'];
-pattern({cons,Line,Head,Tail}) ->
-    [line(Line),
-     '[', [expr(Head), ',' | expr({tail, Tail})], ']'];
-pattern({tail, {cons, Line, Head, {nil, _}}}) ->
-    [line(Line),
-     [pattern(Head)]];
-pattern({tail, {cons, Line, Head, Tail}}) ->
-    [line(Line),
-     [pattern(Head), ',' | pattern({tail, Tail})]];
-pattern({record,Line,Name,PatternFields}) ->
-    [line(Line),
-     [span("record_hash", <<"#">>), span("record_name", atom_to_list(Name)), '{',
-      map_separate(fun pattern_field/1, PatternFields),
-      '}']];
-pattern({record_index,Line,Name,Field}) ->
-    [line(Line),
-     [span("record", ['#', atom_to_list(Name)]), '.', pattern(Field)]];
-pattern({record_field,Line,Expression,RecName,Field}) ->
-    [line(Line),
-     [expr(Expression), '#', span("record", atom_to_list(RecName)), '.', expr(Field)]];
-% How does this happen? (Foo).bar ?
-%pattern({record_field,Line,Rec0,Field0}) ->
-    %Rec1 = expr(Rec0),
-    %Field1 = expr(Field0);
-pattern({bin,Line,BinElems}) ->
-    [line(Line),
-     ['<<', separate(lists:map(fun bin_element/1, BinElems)), '>>']];
-pattern({op,Line,Op,A}) ->
-    [line(Line),
-     span("operator", atom_to_list(Op)), pattern(A)];
-pattern({op,Line,Op,L,R}) ->
-    [line(Line),
-     pattern(L), span("operator", atom_to_list(Op)), pattern(R)];
-pattern(UnknownPattern) ->
-    io:format(user, "Unknown pattern:~n~p~n", [UnknownPattern]),
-    span("error").
-
-bin_element({bin_element,Line,Expression,Size1,Type1}) ->
-    Size2 = case Size1 of
-	     default ->
-		 "";
-	     _ ->
-		 [':', expr(Size1)]
-	 end,
-    Type2 = case Type1 of
-	     default ->
-		 "";
-	     _ ->
-		 ['/', separate('-', lists:map(fun bit_type/1, Type1))]
-	 end,
-    [line(Line),
-     expr(Expression), Size2, Type2].
-
-bit_type(Atom) when is_atom(Atom) ->
-    span(Atom);
-bit_type({Atom, Integer}) when is_atom(Atom), is_integer(Integer) ->
-    [atom(Atom), ':', integer(Integer)].
-
-%% -type pattern_fields([Field]) -> [Field].
-%%  N.B. Field names are full expressions here but only atoms are allowed
-%%  by the *linter*!.
-
-pattern_field({record_field,Lf,{atom,_La,F},Pattern}) ->
-    [line(Lf),
-     span(F), '=', pattern(Pattern)];
-pattern_field({record_field,Lf,{var,_La,'_'},Pattern}) ->
-    [line(Lf),
-     '_', '=', pattern(Pattern)].
-
-guard_group(GuardGroup) ->
-    separate(lists:map(fun expr/1, GuardGroup)).
-
-%% -type exprs([Expression]) -> [Expression].
-%%  These expressions are processed "sequentially" for purposes of variable
-%%  definition etc.
-
-%% -type expr(Expression) -> Expression.
 
 expr({lc,Line,Result,Quals}) ->
     E1 = expr(Result),
@@ -358,7 +285,7 @@ expr({'if',Line,Clauses}) ->
 expr({'case',Line,Expression,Clauses}) ->
     [line(Line),
      'case', expr(Expression), 'of',
-     map_separate(fun clause/1, Clauses),
+     map_separate(';', fun case_clause/1, Clauses),
      'end'];
 expr({'receive',Line,Clauses}) ->
     [line(Line),
@@ -378,56 +305,198 @@ expr({'try',Line,Expressions,_WhatIsThis,CatchClauses,AfterExpressions}) ->
      'end'];
 expr({'fun',Line,Body}) ->
     case Body of
-	{clauses,Clauses} ->
-        [line(Line),
-         'fun',
-         map_separate(fun(Clause) -> clause("", Clause) end, Clauses)];
-	{function,Fun,Arity} ->
-        [line(Line),
-         function(Fun), '/', arity(Arity)];
-	{function,M,F,A} when is_atom(M), is_atom(F), is_integer(A) ->
-        [line(Line),
-         span(<<"module">>, a2b(M)), ':', function(F), '/', arity(A)];
-	{function,M0,F0,A0} ->
-	    %% R15: fun M:F/A with variables.
-	    M = expr(M0),
-	    F = expr(F0),
-	    A = expr(A0),
-        [line(Line),
-         span(<<"module">>, a2b(M)),
-         ':', span("function", F),
-         '/', span("arity", A)]
+        {clauses,Clauses} ->
+            [line(Line),
+             'fun',
+             map_separate(fun(Clause) -> clause('', Clause) end, Clauses)];
+        {function,Fun,Arity} ->
+            [line(Line),
+             function(Fun), '/', arity(Arity)];
+        {function,M,F,A} when is_atom(M), is_atom(F), is_integer(A) ->
+            [line(Line),
+             span(<<"module">>, a2b(M)), ':', function(F), '/', arity(A)];
+        {function,M0,F0,A0} ->
+            %% R15: fun M:F/A with variables.
+            M = expr(M0),
+            F = expr(F0),
+            A = expr(A0),
+            [line(Line),
+             span(<<"module">>, a2b(M)),
+             ':', span("function", F),
+             '/', span("arity", A)]
     end;
 expr({call,Line,Fun,Args}) ->
     %% N.B. If F an atom then call to local function or BIF, if F a
     %% remote structure (see below) then call to other module,
     %% otherwise apply to "function".
+     io:format(user, "calling expr(~p)~n", [Fun]),
     [line(Line),
-     expr(Fun), '(', map_separate(fun expr/1, Args), ')'];
+     %fun_name(Fun), '(', map_separate(fun expr/1, Args), ')'];
+     fun_name(Fun), '(', map_separate(fun expr/1, Args), ')'];
 expr({'catch',Line,Expression}) ->
     %% No new variables added.
     [line(Line),
      'catch', expr(Expression)];
-expr({match,Line,Pattern,Expression}) ->
+expr({match,Line,Expr1,Expr2}) ->
     [line(Line),
-     pattern(Pattern), '=', expr(Expression)];
+     expr(Expr1), '=', expr(Expr2)];
+%expr({match,Line,Left,Right}) ->
+    %[line(Line),
+     %span("match", [expr(Left), '=', expr(Right)])];
 expr({bin,Line,BinElements}) ->
     [line(Line),
      '<<', map_separate(fun bin/1, BinElements), '>>'];
-expr({op,Line,Op,UnaryArg}) ->
+%expr({bin,Line,BinElems}) ->
+    %[line(Line),
+     %['<<', separate(lists:map(fun bin_element/1, BinElems)), '>>']];
+expr({op,Line,Op,A}) ->
     [line(Line),
-     Op, expr(UnaryArg)];
-expr({op,Line,Op,LeftArg,RightArg}) ->
+     span("operator", atom_to_list(Op)), expr(A)];
+%expr({op,Line,Op,UnaryArg}) ->
+    %[line(Line),
+     %Op, expr(UnaryArg)];
+expr({op,Line,Op,L,R}) ->
     [line(Line),
-     expr(LeftArg), Op, expr(RightArg)];
+     expr(L), span("operator", atom_to_list(Op)), expr(R)];
+%expr({op,Line,Op,LeftArg,RightArg}) ->
+    %[line(Line),
+     %expr(LeftArg), Op, expr(RightArg)];
 expr({remote, Line, {atom, _MLine, Module}, {atom, _FLine, Function}}) ->
     [line(Line),
      span(<<"module">>, a2b(Module)), ':', function(Function)];
 expr({nil, Line}) ->
     [line(Line), '[', ']'];
-expr(X) ->
-    io:format(user, "expr/1 punting to pattern/1:~n~p~n", [X]),
-    pattern(X).
+%expr({nil,Line}) ->
+    %[line(Line),
+     %span("list", ['[', ']'])];
+expr({var,Line,V}) ->
+    [line(Line),
+     var(V)];
+expr({integer,Line,I}) ->
+    [line(Line),
+     integer(I)];
+expr({char,Line,C}) ->
+    [line(Line),
+     span("char", [C])];
+expr({float,Line,F}) ->
+    [line(Line),
+     span("float", io_lib:format("~w", [F]))];
+expr({atom,Line,A}) ->
+[line(Line),
+     span("atom", atom_to_list(A))];
+expr({string,Line,S}) ->
+    [line(Line),
+     '"',
+     %{no_parse, <<"--><!-- before parse_control_sequences(S) --><!--\n">>},
+     parse_control_sequences(S),
+     %{no_parse, <<"--><!-- after parse_control_sequences(S) --><!--\n">>},
+     '"'];
+expr({tuple,Line,Exprs}) ->
+    [line(Line),
+     ['{', map_separate(fun expr/1, Exprs), '}']];
+%% There's a special case for all cons's after the first: {tail, _}
+%% so this is a list of one item.
+expr({cons,Line,Head,{nil, _}}) ->
+    [line(Line),
+     '[', expr(Head), ']'];
+expr({cons,Line,Head,{var, _Line2, '_'}}) ->
+    [line(Line),
+     '[', expr(Head), '|', '_', ']'];
+expr(_Cons = {cons,Line,Head,Tail}) ->
+    %io:format(user, "Cons -> Tail = ~p~n", [Cons]),
+    [line(Line),
+     '[', [expr(Head), ',' | expr({tail, Tail})], ']'];
+expr(_Tail = {tail, {cons, Line, Head, {nil, _}}}) ->
+    %io:format(user, "Tail 1 = ~p~n", [Tail]),
+
+    [line(Line),
+     [expr(Head)]];
+expr(_Tail_ = {tail, {cons, Line, Head, Tail}}) ->
+    %io:format(user, "Tail 2 = ~p~n", [Tail_]),
+    [line(Line),
+     [expr(Head), ',' | expr({tail, Tail})]];
+expr({tail, {var, Line, Expr}}) ->
+    [line(Line),
+     var(Expr)];
+expr({tail, Call = {call, Line, _Fun, _Args}}) ->
+    [line(Line),
+     expr(Call)];
+expr({tail, Unknown}) ->
+    io:format(user, "Unknown tail ~p~n", [Unknown]);
+expr({record,Line,Name,exprFields}) ->
+    [line(Line),
+     [span("record_hash", {no_parse, {no_parse, <<"#">>}}), span("record_name", atom_to_list(Name)), '{',
+      map_separate(fun expr_field/1, exprFields),
+      '}']];
+expr({record_index,Line,Name,Field}) ->
+    [line(Line),
+     [span("record", ['#', atom_to_list(Name)]), '.', expr(Field)]];
+expr({record_field,Line,Expression,RecName,Field}) ->
+    [line(Line),
+     [expr(Expression), '#', span("record", atom_to_list(RecName)), '.', expr(Field)]];
+% How does this happen? (Foo).bar ?
+%expr({record_field,Line,Rec0,Field0}) ->
+    %Rec1 = expr(Rec0),
+    %Field1 = expr(Field0);
+expr(UnknownExpr) ->
+    io:format(user, "Unknown expr:~n~p~n", [UnknownExpr]),
+    span("error").
+
+
+bit_type(Atom) when is_atom(Atom) ->
+    span(Atom);
+bit_type({Atom, Integer}) when is_atom(Atom), is_integer(Integer) ->
+    [atom(Atom), ':', integer(Integer)].
+
+expr_field({record_field,Lf,{atom,_La,F},Expr}) ->
+    [line(Lf),
+     span(F), '=', expr(Expr)];
+expr_field({record_field,Lf,{var,_La,'_'},Expr}) ->
+    [line(Lf),
+     '_', '=', expr(Expr)].
+
+guard_group(GuardGroup) ->
+    separate(lists:map(fun expr/1, GuardGroup)).
+
+fun_name({atom, _Line, Name}) ->
+    [%line(Line),
+     span(<<"fun_call">>, Name)];
+fun_name(A = {remote, _LineR, {atom, _LineM, Module}, {atom, _LineF, Function}}) ->
+     io:format(user, "fun_name(~p)~n", [A]),
+    [%line(LineR),
+     %line(LineM),
+     span(<<"remote_fun_module">>, a2b(Module)),
+     ':',
+     %line(LineF),
+     span(<<"fun_call">>, a2b(Function))];
+fun_name(Any) ->
+    io:format(user, "Unknown fun_name: ~p~n", [Any]),
+    [].
+
+parse_control_sequences(String) when is_list(String) ->
+    CtrlSeqs = [<<"~n">>,
+                <<"~p">>,
+                <<"~b">>,
+                <<"~w">>],
+    Parsed = lists:foldl(fun pcs/2, [list_to_binary(String)], CtrlSeqs),
+    lists:map(fun span_bins/1, Parsed).
+
+pcs(_, []) ->
+    [];
+pcs(CtrlSeq, [Tuple | Rest]) when is_tuple(Tuple) ->
+    [Tuple | pcs(CtrlSeq, Rest)];
+pcs(CtrlSeq, [Bin | Rest]) ->
+    case string:split(Bin, CtrlSeq) of
+        [_] ->
+            [Bin | pcs(CtrlSeq, Rest)];
+        [Before, After] ->
+            lists:flatten([[Before, CtrlSeq | pcs(CtrlSeq, [After])] | pcs(CtrlSeq, Rest)])
+    end.
+
+span_bins(CtrlSeq = <<$~, _>>) ->
+    span(<<"control_sequence">>, CtrlSeq);
+span_bins(String) ->
+    span(<<"string">>, String).
 
 %% -type lc_bc_qual([Qualifier]) -> [Qualifier].
 %%  Allow filters to be both guard tests and general expressions.
@@ -441,25 +510,25 @@ type({atom,Line,A}) ->
 type({integer,Line,I}) ->
     [line(Line), integer(I)];
 type(Op = {op, _, _, _}) ->
-    pattern(Op);
+    expr(Op);
 type(Op = {op,_, _, _, _}) ->
-    pattern(Op);
+    expr(Op);
 type({type,Line,binary,[{_, _, 0},{_, _, 0}]}) ->
     [line(Line), '<<', '>>'];
 type({type,Line,binary,[{_, _, M}, {_, _, 0}]}) ->
     [line(Line),
-     '<<', '_', ':', span("integer", i2b(M)), '>>'];
+     '<<', '_', ':', span(<<"integer">>, i2b(M)), '>>'];
 type({type,Line,binary,[{_, _, 0},{_, _, N}]}) ->
     [line(Line),
-     '<<', '_', ':', '_', '*', span("integer", i2b(N)), '>>'];
+     '<<', '_', ':', '_', '*', span(<<"integer">>, i2b(N)), '>>'];
 type({type,Line,binary,[{_, _, M},{_, _, N}]}) ->
     [line(Line),
-     '<<', '_', ':', span("integer", i2b(M)), ',',
-     '_', ':', '_', '*', span("integer", i2b(N)), '>>'];
+     '<<', '_', ':', span(<<"integer">>, i2b(M)), ',',
+     '_', ':', '_', '*', span(<<"integer">>, i2b(N)), '>>'];
 type({type,Line,'fun',[]}) ->
-    [line(Line), span("fun", "fun"), '(', ')'];
+    [line(Line), span(<<"fun">>), '(', ')'];
 type({type,Line,'fun',[{type,Lt,any},B]}) ->
-    [line(Line), span("fun"), '(',
+    [line(Line), span(<<"fun">>), '(',
      line(Lt), '(', '...', ')', '->', type(B), ')'];
 type({type,Line,'fun',[{type,Lt,product, ArgTypes},TypeResult]}) ->
     [line(Line),
@@ -474,14 +543,14 @@ type({type,Line,nil,[]}) ->
 type({type,Line,range,[L,H]}) ->
     [line(Line), type(L), '..', type(H)];
 type({type,Line,map,any}) ->
-    [line(Line), span("map_hash", "#"), '{', '}'];
+    [line(Line), span(<<"map_hash">>, "#"), '{', '}'];
 type({type,Line,map,Ps}) ->
     Ps1 = map_pair_types(Ps),
-    [line(Line), span("map_hash", "#"), '{', Ps1, '}'];
+    [line(Line), span(<<"map_hash">>, "#"), '{', Ps1, '}'];
 type({type,Line,record,[{atom,_La,N}|Fs]}) ->
     Fs1 = field_types(Fs),
     [line(Line),
-     span("record_hash", <<"#">>), span("record_name", a2b(N)), '{', Fs1, '}'];
+     span(<<"record_hash">>, <<"#">>), span(<<"record_name">>, a2b(N)), '{', Fs1, '}'];
 
 %type({remote_type,Line,[{atom,Lm,M},{atom,Ln,N},As]}) ->
     %As1 = type_list(As),
@@ -534,15 +603,15 @@ type_list([]) -> [].
 %% which are simply expressions
 %% A generator is a target and a source
 lc_bc_qual({generate,_Line,Target,Source}) ->
-    ['[', pattern(Target), '<-', expr(Source), ']'];
+    ['[', expr(Target), '<-', expr(Source), ']'];
 lc_bc_qual({b_generate,_Line,Target,Source}) ->
-    [pattern(Target), '<=', expr(Source)];
+    [expr(Target), '<=', expr(Source)];
 lc_bc_qual(FilterExpression) ->
     expr(FilterExpression).
 
 bin({bin_element,Line,Var,Size,MaybeTypes}) ->
     [line(Line),
-     pattern(Var),
+     expr(Var),
      case Size of
          default ->
              "";
@@ -555,6 +624,22 @@ bin({bin_element,Line,Var,Size,MaybeTypes}) ->
          _ ->
              ['/', map_separate('-', fun bit_type/1, MaybeTypes)]
      end].
+
+%bin_element({bin_element,Line,Expression,Size1,Type1}) ->
+    %Size2 = case Size1 of
+		 %default ->
+		 %"";
+		 %_ ->
+		 %[':', expr(Size1)]
+	 %end,
+    %Type2 = case Type1 of
+		 %default ->
+		 %"";
+		 %_ ->
+		 %['/', separate('-', lists:map(fun bit_type/1, Type1))]
+	 %end,
+    %[line(Line),
+     %expr(Expression), Size2, Type2].
 
 var(Atom) ->
     span(<<"variable">>, a2b(Atom)).
@@ -583,20 +668,22 @@ a2b(A) ->
 span(Keyword) ->
     span(Keyword, Keyword).
 
+span(Class, Atom) when is_atom(Atom) ->
+    span(Class, a2b(Atom));
 span(_Class = <<"line">>, Line) ->
     {line, Line};
 span(Class = <<"tuple">>, Text) ->
-     [<<"--><span class=\"">>,
+     [{no_parse, <<"--><span class=\"">>},
       Class,
-      <<"\"><!--\n">>,
+      {no_parse, <<"\"><!--\n">>},
       Text,
-      <<"--></span><!--\n">>];
+      {no_parse, <<"--></span><!--\n">>}];
 span(Class, Text) ->
-     [<<"--><span class=\"">>,
+     [{no_parse, <<"--><span class=\"">>},
       Class,
-      <<"\">">>,
+      {no_parse, <<"\">">>},
       Text,
-      <<"</span><!--\n">>].
+      {no_parse, <<"</span><!--\n">>}].
 
 %span_open(Class) ->
     %["<span class=\"",
@@ -604,73 +691,73 @@ span(Class, Text) ->
      %"</span>"].
 
 parse_symbol('(') ->
-    span("paren", "(");
+    span(<<"paren">>, <<"(">>);
 parse_symbol(')') ->
-    span("paren", ")");
+    span(<<"paren">>, <<")">>);
 parse_symbol('{') ->
-    span("brace", "{");
+    span(<<"brace">>, <<"{">>);
 parse_symbol('}') ->
-    span("brace", "}");
+    span(<<"brace">>, <<"}">>);
 parse_symbol('[') ->
-    span("bracket", "[");
+    span(<<"bracket">>, <<"[">>);
 parse_symbol(']') ->
-    span("bracket", "]");
+    span(<<"bracket">>, <<"]">>);
 parse_symbol('.') ->
-    span("period", ".");
+    span(<<"period">>, <<".">>);
 parse_symbol(',') ->
-    span("comma", ",");
+    span(<<"comma">>, <<",">>);
 parse_symbol(':') ->
-    span("colon", ":");
+    span(<<"colon">>, <<":">>);
 parse_symbol(';') ->
-    span("semicolon", ";");
+    span(<<"semicolon">>, ";");
 parse_symbol('/') ->
-    span("slash", "/");
+    span(<<"slash">>, <<"/">>);
 parse_symbol('-') ->
-    span("dash", "-");
+    span(<<"dash">>, <<"-">>);
 parse_symbol('=') ->
-    span("equals", "=");
+    span(<<"equals">>, <<"=">>);
 parse_symbol('>') ->
-    span("greater_than", "&gt;");
+    span(<<"greater_than">>, <<"&gt;">>);
 parse_symbol('<') ->
-    span("less_than", "&lt;");
+    span(<<"less_than">>, <<"&lt;">>);
 parse_symbol('==') ->
-    span("double-equals", "==");
+    span(<<"double-equals">>, <<"==">>);
 parse_symbol('+') ->
-    span("plus", "+");
+    span(<<"plus">>, <<"+">>);
 parse_symbol('*') ->
-    span("star", "*");
+    span(<<"star">>, <<"*">>);
 parse_symbol('->') ->
-    span("clause_arrow", "-&gt;");
+    span(<<"clause_arrow">>, <<"-&gt;">>);
 parse_symbol('<-') ->
-    span("generator_arrow", "&lt;-");
+    span(<<"generator_arrow">>, <<"&lt;-">>);
 parse_symbol('"') ->
-    span("double_quote", "&quot;");
+    span(<<"double_quote">>, <<"&quot;">>);
 parse_symbol('%') ->
-    span("comment", "%");
+    span(<<"comment">>, <<"%">>);
 parse_symbol('::') ->
-    span("record_type_op", "::");
+    span(<<"record_type_op">>, <<"::">>);
 parse_symbol('<<') ->
-    span("binary_open", "&lt;&lt;");
+    span(<<"binary_open">>, <<"&lt;&lt;">>);
 parse_symbol('>>') ->
-    span("binary_close", "&gt;&gt;");
+    span(<<"binary_close">>, <<"&gt;&gt;">>);
 parse_symbol('...') ->
-    span("any_elipsis", "...");
+    span(<<"any_elipsis">>, <<"...">>);
 parse_symbol('..') ->
-    span("range", "..");
+    span(<<"range">>, <<"..">>);
 parse_symbol('_') ->
-    span("var", "_");
+    span(<<"var">>, <<"_">>);
 parse_symbol('#') ->
-    span("hash", "#");
+    span(<<"hash">>, <<"#">>);
 parse_symbol('|') ->
-    span("cons", "|");
+    span(<<"cons">>, <<"|">>);
 parse_symbol('=>') ->
-    span("map_field_assoc", "=&gt;");
+    span(<<"map_field_assoc">>, <<"=&gt;">>);
 parse_symbol(':=') ->
-    span("map_field_exact", ":=");
+    span(<<"map_field_exact">>, <<":=">>);
 parse_symbol(Line = {line, _}) ->
     Line;
 parse_symbol(eof) ->
-    span("eof");
+    span(<<"eof">>);
 parse_symbol(Atom) ->
     span(atom_to_list(Atom)).
 
