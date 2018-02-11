@@ -1,0 +1,1 @@
+erl -pa ebin -eval 'erl_to_html:write_html("src/erl_to_html.erl")' -s init stop > out

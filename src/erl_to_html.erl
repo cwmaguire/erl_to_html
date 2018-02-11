@@ -177,8 +177,6 @@ html({warning,W}) ->
 html({eof,Line}) ->
     [line(Line), span(<<"eof">>)].
 
-%% -type farity_list([Farity]) -> [Farity] when Farity <= {atom(),integer()}.
-
 farity_list(FunArities) ->
     separate(lists:map(fun farity/1, FunArities)).
 
@@ -257,16 +255,11 @@ case_clause({clause, Line, [Head], GuardGroups, Body}) ->
      '->',
      separate(lists:map(fun expr/1, Body))].
 
-%% -type head([Pattern]) -> [Pattern].
-
 head(Expressions) ->
     ['(', separate(lists:map(fun expr/1, Expressions)), ')'].
 
 %% -type pattern(Pattern) -> Pattern.
 %%  N.B. Only valid patterns are included here.
-
-%% TODO: why bother having pattern/1 _and_ expr/1
-
 expr({lc,Line,Result,Quals}) ->
     E1 = expr(Result),
     [line(Line),
@@ -341,38 +334,23 @@ expr({'catch',Line,Expression}) ->
 expr({match,Line,Expr1,Expr2}) ->
     [line(Line),
      expr(Expr1), '=', expr(Expr2)];
-%expr({match,Line,Left,Right}) ->
-    %[line(Line),
-     %span("match", [expr(Left), '=', expr(Right)])];
 expr({bin,Line,BinElements}) ->
     [line(Line),
      '<<', map_separate(fun bin/1, BinElements), '>>'];
-%expr({bin,Line,BinElems}) ->
-    %[line(Line),
-     %['<<', separate(lists:map(fun bin_element/1, BinElems)), '>>']];
 expr({op,Line,Op,A}) ->
     [line(Line),
      span("operator", atom_to_list(Op)), expr(A)];
-%expr({op,Line,Op,UnaryArg}) ->
-    %[line(Line),
-     %Op, expr(UnaryArg)];
 expr({op,Line,'==',L,R}) ->
     [line(Line),
      expr(L), span(<<"double_equals">>, "=="), expr(R)];
 expr({op,Line,Op,L,R}) ->
     [line(Line),
      expr(L), span("operator", atom_to_list(Op)), expr(R)];
-%expr({op,Line,Op,LeftArg,RightArg}) ->
-    %[line(Line),
-     %expr(LeftArg), Op, expr(RightArg)];
 expr({remote, Line, {atom, _MLine, Module}, {atom, _FLine, Function}}) ->
     [line(Line),
      span(<<"module">>, a2b(Module)), ':', function(Function)];
 expr({nil, Line}) ->
     [line(Line), '[', ']'];
-%expr({nil,Line}) ->
-    %[line(Line),
-     %span("list", ['[', ']'])];
 expr({var,Line,V}) ->
     [line(Line),
      var(V)];
