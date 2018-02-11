@@ -23,6 +23,7 @@
 write_html(Filename) ->
     io:format(user, "Compiling ~p~n", [Filename]),
     Result = compile:file(Filename, [report_errors,
+                                     return_errors,
                                      {parse_transform, ?MODULE},
                                      {d, filename, Filename}]),
     io:format(user, "Compile result:~n~p~n", [Result]).
@@ -33,11 +34,11 @@ parse_transform(Forms, Options) ->
     Indents = get_indents:indents(Filename),
     %io:format(user, "Indents = ~p~n", [Indents]),
 
-    %io:format(user, "Parse transforming forms: ~n"
-                    %"\t~p~n"
-                    %"\t with Options:~n"
-                    %"\t~p~n",
-              %[Forms, Options]),
+    io:format(user, "Parse transforming forms: ~n"
+                    "\t~p~n"
+                    "\t with Options:~n"
+                    "\t~p~n",
+              [Forms, Options]),
 
     HtmlFilename = html_filename(Filename),
     io:format(user, "Filename: ~p~n", [HtmlFilename]),
@@ -355,6 +356,9 @@ expr({op,Line,Op,A}) ->
 %expr({op,Line,Op,UnaryArg}) ->
     %[line(Line),
      %Op, expr(UnaryArg)];
+expr({op,Line,'==',L,R}) ->
+    [line(Line),
+     expr(L), span(<<"double_equals">>, "=="), expr(R)];
 expr({op,Line,Op,L,R}) ->
     [line(Line),
      expr(L), span("operator", atom_to_list(Op)), expr(R)];
@@ -377,10 +381,28 @@ expr({integer,Line,I}) ->
      integer(I)];
 expr({char,Line,C}) ->
     [line(Line),
-     span("char", [C])];
+     span("char", [$$, C])];
 expr({float,Line,F}) ->
     [line(Line),
      span("float", io_lib:format("~w", [F]))];
+expr({atom,Line,A}) when A == ':';
+                         A == '<<';
+                         A == '>>';
+                         A == '_';
+                         A == '*';
+                         A == '#';
+                         A == '...';
+                         A == '->';
+                         A == ',';
+                         A == '[';
+                         A == ']';
+                         A == '{';
+                         A == '}';
+                         A == '(';
+                         A == ')' ->
+    Str = [$', atom_to_list(A)] ++ "'",
+    [line(Line),
+     span("atom", list_to_binary(Str))];
 expr({atom,Line,A}) ->
 [line(Line),
      span("atom", atom_to_list(A))];
@@ -721,7 +743,7 @@ parse_symbol('>') ->
 parse_symbol('<') ->
     span(<<"less_than">>, <<"&lt;">>);
 parse_symbol('==') ->
-    span(<<"double-equals">>, <<"==">>);
+    span(<<"double_equals">>, <<"==">>);
 parse_symbol('+') ->
     span(<<"plus">>, <<"+">>);
 parse_symbol('*') ->
