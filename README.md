@@ -6,10 +6,7 @@ I'm only testing it with Erlang 20
 
 ## How to use it
 1. make
-1. erl
-1. erl> l(erl_to_html).
-1. erl> erl_to_html:write_html("my/source/file.erl").
-1. C-c, C-c
+1. ./run
 1. cat html_header my/source/file.html html_footer > my_file.html
 
 ## Tests
