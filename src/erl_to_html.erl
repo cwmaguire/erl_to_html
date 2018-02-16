@@ -32,7 +32,8 @@ parse_transform(Forms, Options) ->
     Filename = filename(Options),
     io:format(user, "Scanning ~p for indentation~n", [Filename]),
     Indents = get_indents:indents(Filename),
-    %io:format(user, "Indents = ~p~n", [Indents]),
+    io:format(user, "Scanning ~p for comments~n", [Filename]),
+    Comments = get_comments:comments(Filename),
 
     io:format(user, "Parse transforming forms: ~n"
                     "\t~p~n"
@@ -42,7 +43,7 @@ parse_transform(Forms, Options) ->
 
     HtmlFilename = html_filename(Filename),
     io:format(user, "Filename: ~p~n", [HtmlFilename]),
-    HTML = parse(lines(html(Forms), Indents)),
+    HTML = parse(lines(html(Forms), Indents, Comments)),
     %io:format(user, "HTML = ~p~n", [HTML]),
     {ok, HtmlFile} = file:open(HtmlFilename, [write]),
     case file:write(HtmlFile, [HTML, <<"\n">>]) of
@@ -58,32 +59,42 @@ filename(Options) ->
         [] ->
             "out.html";
         [Filename | _] ->
-            Filename
+            Filename % test comment
     end.
 
 html_filename(Filename) ->
     filename:rootname(Filename) ++ ".html".
 
 %% walk the tree and wrap lines in spans
-lines(Tree, Indents) ->
-    {Tree2, _} = lines([], Tree, 0, Indents),
-    StartLine = [{no_parse, <<"--><span class=\"line\">">>},
+lines(Tree, Indents, Comments) ->
+    {Tree2, _} = lines([], Tree, 0, Indents, Comments),
+    StartLine = [{no_parse, <<"<span class=\"line\">">>},
                  {no_parse, <<"<span class=\"line_no\">">>},
                  {no_parse, <<"0">>},
                  html_spaces(maps:get(1, Indents, 0)),
                  {no_parse, <<"</span><!--\n">>}],
     [StartLine, Tree2, {no_parse, <<"</span>">>}].
 
-lines(Tree, [], Line, _Indents)  ->
+lines(Tree, [], Line, _Indents, _Comments)  ->
     {lists:reverse(Tree), Line};
-lines(Tree, [Head | Rest], Line, Indents) when is_list(Head) ->
-    {SubTree, CurrLine} = lines([], Head, Line, Indents),
-    lines([SubTree | Tree], Rest, CurrLine, Indents);
-lines(Tree, [{line, Line} | Rest], Line, Indents) ->
+lines(Tree, [Head | Rest], Line, Indents, Comments) when is_list(Head) ->
+    {SubTree, CurrLine} = lines([], Head, Line, Indents, Comments),
+    lines([SubTree | Tree], Rest, CurrLine, Indents, Comments);
+lines(Tree, [{line, Line} | Rest], Line, Indents, Comments) ->
     % same line
-    lines(Tree, Rest, Line, Indents);
-lines(Tree, [{line, NewLine} | Rest], Line, Indents) ->
-    StartLine = [_EndPrevLine = {no_parse, <<"--></span>">>},
+    lines(Tree, Rest, Line, Indents, Comments);
+lines(Tree, [{line, NewLine} | Rest], Line, Indents, Comments) ->
+    EndOfLine =
+        case maps:get(Line, Comments, undefined) of
+            undefined ->
+                <<>>;
+            Comment ->
+                [{no_parse, <<"--><span class=\"comment\">">>},
+                 parse_comment(Comment),
+                 {no_parse, <<"</span><!--\n">>}]
+        end,
+    StartLine = [EndOfLine,
+                 _EndPrevLine = {no_parse, <<"--></span>">>},
                  {no_parse, <<"<span class=\"line\">">>},
                  {no_parse, <<"<span class=\"line_no\">">>},
                  i2b(Line + 1),
@@ -93,12 +104,35 @@ lines(Tree, [{line, NewLine} | Rest], Line, Indents) ->
     lines([StartLine | Tree],
           [{line, NewLine} | Rest],
           Line + 1,
-          Indents);
-lines(Tree, [Head | Rest], Line, Indents) ->
-    lines([Head | Tree], Rest, Line, Indents).
+          Indents,
+          Comments);
+lines(Tree, [Head | Rest], Line, Indents, Comments) ->
+    lines([Head | Tree], Rest, Line, Indents, Comments).
 
 html_spaces(NumSpaces) ->
     [span({no_parse, <<"space">>}, {no_parse, <<"&nbsp;">>}) || _ <- lists:seq(1, NumSpaces)].
+
+parse_comment(Comment) ->
+    parse_comment([], Comment).
+
+parse_comment(Comment, []) ->
+    lists:reverse(Comment);
+parse_comment(Comment, "TODO" ++ Rest) ->
+    parse_comment([comment_keyword("TODO") | Comment], Rest);
+parse_comment(Comment, "NOTE" ++ Rest) ->
+    parse_comment([comment_keyword("NOTE") | Comment], Rest);
+parse_comment(Comment, "FIXME" ++ Rest) ->
+    parse_comment([comment_keyword("FIXME") | Comment], Rest);
+parse_comment(Comment,  [Head | Rest]) ->
+    parse_comment([[Head] | Comment], Rest).
+
+comment_keyword(Keyword) ->
+    [{no_parse,
+      list_to_binary(["<span class=\"",
+                      string:to_lower(Keyword),
+                      "\">"])},
+     Keyword,
+     {no_parse, <<"</span>">>}].
 
 
 %% No raw numbers should show up in the HTML
@@ -119,10 +153,12 @@ parse(Other) ->
     Other.
 
 escape(String0) ->
+    % TODO might need to "no_parse" these
     Lt = <<"<">>,
     HtmlLt = <<"&lt;">>,
     Gt = <<">">>,
     HtmlGt = <<"&gt;">>,
+    % TODO This is showing up without the backslash
     Quote = <<"\"">>,
     HtmlQuote = <<"&quot;">>,
     Replacements = [{Gt, HtmlGt},
@@ -323,7 +359,7 @@ expr({call,Line,Fun,Args}) ->
     %% N.B. If F an atom then call to local function or BIF, if F a
     %% remote structure (see below) then call to other module,
     %% otherwise apply to "function".
-     io:format(user, "calling expr(~p)~n", [Fun]),
+     %io:format(user, "calling expr(~p)~n", [Fun]),
     [line(Line),
      %fun_name(Fun), '(', map_separate(fun expr/1, Args), ')'];
      fun_name(Fun), '(', map_separate(fun expr/1, Args), ')'];
@@ -367,18 +403,22 @@ expr({atom,Line,A}) when A == ':';
                          A == '<<';
                          A == '>>';
                          A == '_';
+                         A == '-';
                          A == '*';
                          A == '#';
                          A == '...';
                          A == '->';
+                         A == '.';
                          A == ',';
                          A == '[';
                          A == ']';
                          A == '{';
                          A == '}';
                          A == '(';
-                         A == ')' ->
-    Str = [$', atom_to_list(A)] ++ "'",
+                         A == '(';
+                         A == '"' ->
+    io:format(user, "{atom, Line, ~p}", [A]),
+    Str = [$', atom_to_list(A), $'],
     [line(Line),
      span("atom", list_to_binary(Str))];
 expr({atom,Line,A}) ->
@@ -461,8 +501,8 @@ guard_group(GuardGroup) ->
 fun_name({atom, _Line, Name}) ->
     [%line(Line),
      span(<<"fun_call">>, Name)];
-fun_name(A = {remote, _LineR, {atom, _LineM, Module}, {atom, _LineF, Function}}) ->
-     io:format(user, "fun_name(~p)~n", [A]),
+fun_name(_A = {remote, _LineR, {atom, _LineM, Module}, {atom, _LineF, Function}}) ->
+     %io:format(user, "fun_name(~p)~n", [A]),
     [%line(LineR),
      %line(LineM),
      span(<<"remote_fun_module">>, a2b(Module)),

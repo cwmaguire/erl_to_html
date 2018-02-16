@@ -24,6 +24,16 @@ body {
   color: #00afaf;
 }
 
+.comment {
+  color: #586e75
+}
+
+.todo,
+.fixme,
+.note {
+  color: #d33682
+}
+
 .atom,
 .integer,
 .float,
