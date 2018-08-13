@@ -29,6 +29,7 @@ write_tuples(Filename) ->
     io:format(user, "Compile result:~n~p~n", [Result]).
 
 parse_transform(Forms, Options) ->
+    Filename = filename(Options),
     io:format(user, "Scanning ~p for indentation~n", [Filename]),
     Indents = get_indents:indents(Filename),
     io:format(user, "Scanning ~p for comments~n", [Filename]),
@@ -40,16 +41,23 @@ parse_transform(Forms, Options) ->
                     "\t~p~n",
               [Forms, Options]),
 
-    Tuples = parse(lines(tuples(Forms), Indents, Comments)),
+    Tuples = lines(tuples(Forms), Indents, Comments),
     erl_to_png:render(Tuples),
     Forms.
 
+filename(Options) ->
+    case [Filename || {d, filename, Filename} <- Options] of
+        [] ->
+            "out.html";
+        [Filename | _] ->
+            Filename % test comment
+    end.
 
-%% walk the tree and wrap lines in spans
+%% walk the tree adding comments and indents scanned from the original source
 lines(Tree, Indents, Comments) ->
     {Tree2, _} = lines([], Tree, 0, Indents, Comments),
-    StartLine = [{_Line = 0, _LineNumber = <<"0">>, <<"93a1a1">>}]
-                 %html_spaces(maps:get(1, Indents, 0)),
+    StartLine = [{_Line = 0, _LineNumber = <<"0">>, ?LINE_COLOUR},
+                 {_Line = 0, list_to_binary(string:copies(" ", maps:get(1, Indents, 0))), ?TEXT_COLOUR}],
     [StartLine, Tree2].
 
 lines(Tree, [], Line, _Indents, _Comments)  ->
@@ -68,9 +76,11 @@ lines(Tree, [{line, NewLine} | Rest], Line, Indents, Comments) ->
             Comment ->
                 parse_comment(Line, Comment)
         end,
-    StartLine = EndOfLine ++ ,
-                 {Line, i2b(Line + 1), ?LINE_COLOUR},
-                 html_spaces(maps:get(NewLine, Indents, 0))],
+    StartLine = EndOfLine ++
+                 [{Line, i2b(Line + 1), ?LINE_COLOUR},
+                  {_Line = 0,
+                   list_to_binary(string:copies(" ", maps:get(NewLine, Indents, 0))),
+                   ?TEXT_COLOUR}],
     lines([StartLine | Tree],
           [{line, NewLine} | Rest],
           Line + 1,
@@ -78,9 +88,6 @@ lines(Tree, [{line, NewLine} | Rest], Line, Indents, Comments) ->
           Comments);
 lines(Tree, [Head | Rest], Line, Indents, Comments) ->
     lines([Head | Tree], Rest, Line, Indents, Comments).
-
-html_spaces(NumSpaces) ->
-    {Line, [$  || _ <- lists:seq(1, NumSpaces)], }.
 
 parse_comment(Comment, Line) ->
     parse_comment(_Text = "", _Parsed = [], Comment, Line).
@@ -91,50 +98,20 @@ parse_comment(RemainingText, Parsed, _Comment = [], Line) ->
 parse_comment(Text, Parsed, "TODO" ++ Rest, Line) ->
     TextTuple = {Line, Text, ?COMMENT_COLOUR},
     KeywordTuple = {Line, "TODO", ?COMMENT_KEYWORD_COLOUR},
-    parse_comment([KeywordTuple, TextTuple | Parsed], Rest, Line);
-parse_comment(Line, Text, Parsed, "NOTE" ++ Rest, Line) ->
+    parse_comment("", [KeywordTuple, TextTuple | Parsed], Rest, Line);
+parse_comment(Text, Parsed, "NOTE" ++ Rest, Line) ->
     TextTuple = {Line, Text, ?COMMENT_COLOUR},
     KeywordTuple = {Line, "NOTE", ?COMMENT_KEYWORD_COLOUR},
-    parse_comment([KeywordTuple, TextTuple | Parsed], Rest, Line);
-parse_comment(Text, Parsed, "FIXME" ++ Rest) ->
+    parse_comment("", [KeywordTuple, TextTuple | Parsed], Rest, Line);
+parse_comment(Text, Parsed, "FIXME" ++ Rest, Line) ->
     TextTuple = {Line, Text, ?COMMENT_COLOUR},
     KeywordTuple = {Line, "FIXME", ?COMMENT_KEYWORD_COLOUR},
     parse_comment("", [KeywordTuple, TextTuple | Parsed], Rest, Line);
 parse_comment(Text, Parsed, [Head | Rest], Line) ->
     parse_comment(Text ++ [Head], Parsed, Rest, Line).
 
-%% No raw numbers should show up in the HTML
-parse(String = [I | _]) when is_number(I) ->
-    String;
-parse(Binary) when is_binary(Binary) ->
-    Binary;
-parse(List) when is_list(List) ->
-    lists:map(fun parse/1, List);
-parse(Term) when is_atom(Term); is_tuple(Term) ->
-    parse(parse_symbol(Term));
-parse(Other) ->
-    io:format(user, "Parsing other = ~p~n", [Other]),
-    Other.
-
-escape(String0) ->
-    % TODO might need to "no_parse" these
-    Lt = <<"<">>,
-    HtmlLt = <<"&lt;">>,
-    Gt = <<">">>,
-    HtmlGt = <<"&gt;">>,
-    % TODO This is showing up without the backslash
-    Quote = <<"\"">>,
-    HtmlQuote = <<"&quot;">>,
-    Replacements = [{Gt, HtmlGt},
-                    {Lt, HtmlLt},
-                    {Quote, HtmlQuote}],
-
-    lists:foldl(fun({Old, New}, String) ->
-                    string:replace(String, Old, New, all)
-                end, String0, Replacements).
-
 tuples(Forms) when is_list(Forms) ->
-    [tuple(Form) || Form <- Forms];
+    [tuple(Form) || Form <- Forms].
 
 %% -type form(Form) -> Form.
 %%  Here we show every known form and valid internal structure. We do not
@@ -148,44 +125,54 @@ tuple({attribute,Line,module,Mod}) ->
      parse_symbol(Line, '('),
      module(Line, Mod),
      parse_symbol(Line, ')'),
-     parse_symbol(Line, '.'),
-tuple({attribute,_AttributeLine,file,{File,_FileLine}}) ->	%This is valid anywhere.
+     parse_symbol(Line, '.')];
+tuple({attribute,_AttributeLine,file,{File,FileLine}}) ->	%This is valid anywhere.
     %% Manually set this to 0 to come before any source lines
     [line(0),
      parse_symbol(0, '%'),
      parse_symbol(0, '-'),
      parse_symbol(0, 'file'),
      parse_symbol(0, '('),
-     file_literal((0, File),
+     {FileLine, File, ?TEXT_COLOUR},
      parse_symbol(0, ')'),
      parse_symbol(0, '.')];
 tuple({attribute,Line,export,Es0}) ->
     [line(Line),
      parse_symbol(Line, '-'),
-     span("export"), parse_symbol(Line, '['),
-     farity_list(Es0), parse_symbol(Line, ']'),
+     {Line, <<"export">>, ?EXPORT_COLOUR},
+     parse_symbol(Line, '['),
+     farity_list(Line, Es0), parse_symbol(Line, ']'),
      '.'];
      tuple({attribute,Line,import,{Mod,Is0}}) ->
     [line(Line),
      parse_symbol(Line, '-'),
-'import', ',', module(Mod), parse_symbol(Line, '('),
+     {Line, <<"import">>, ?TEXT_COLOUR},
+     parse_symbol(Line, ','),
+     {Line, a2b(Mod), ?MODULE_COLOUR},
+     parse_symbol(Line, '('),
      parse_symbol(Line, '['),
-     farity_list(Is0), parse_symbol(Line, ']'),
+     farity_list(Line, Is0), parse_symbol(Line, ']'),
      parse_symbol(Line, ')'),
      '.'];
 tuple({attribute,Line,compile,C}) ->
     [line(Line),
      parse_symbol(Line, '-'),
-'compile', parse_symbol(Line, '('),
-     span(<<"compile-option">>, atom_to_list(C)), parse_symbol(Line, ')'),
-     '.'];
+     {Line, <<"compile">>, ?TEXT_COLOUR},
+     parse_symbol(Line, '('),
+     {Line, atom_to_list(C), ?TEXT_COLOUR},
+     parse_symbol(Line, ')'),
+     parse_symbol(Line, '.')];
 tuple({attribute,Line,record,{Name,Defs}}) ->
     [line(Line),
      parse_symbol(Line, '-'),
-'record', parse_symbol(Line, '('),
-     span("atom", atom_to_list(Name)), ',', '{',
+     {Line, <<"record">>, ?TEXT_COLOUR},
+     parse_symbol(Line, '('),
+     {Line, atom_to_list(Name), ?RECORD_NAME_COLOUR},
+     parse_symbol(Line, ','),
+     parse_symbol(Line, '{'),
      record_defs(Defs),
-     '}', parse_symbol(Line, ')'),
+     parse_symbol(Line, '}'),
+     parse_symbol(Line, ')'),
      '.'];
 tuple({attribute,Line,asm,{function,_N,_A,_Code}}) ->
     line(Line);
@@ -200,14 +187,19 @@ tuple({error,E}) ->
 tuple({warning,W}) ->
     {warning,W};
 tuple({eof,Line}) ->
-    [line(Line), span(<<"eof">>)].
+    [line(Line),
+     {Line, <<"eof">>, ?TEXT_COLOUR}].
 
-farity_list(FunArities) ->
-    separate(lists:map(fun farity/1, FunArities)).
+farity_list(Line, FunArities) ->
+    Fun = fun(ArityItem) ->
+              farity(Line, ArityItem)
+          end,
+    separate(lists:map(Fun, FunArities)).
 
-farity({Name, Arity}) ->
-    [function(Name), parse_symbol(Line, '/'),
-     arity(Arity)].
+farity(Line, {Name, Arity}) ->
+    [function(Line, Name),
+     parse_symbol(Line, '/'),
+     arity(Line, Arity)].
 
 %% -type record_defs([RecDef]) -> [RecDef].
 %%  N.B. Field names are full expressions here but only atoms are allowed
@@ -232,10 +224,12 @@ record_def({typed_record_field, RecordDef, Type}) ->
      type(Type)];
 record_def({record_field,Line,{atom,_La,A},Val}) ->
     [line(Line),
-     span("record_field", a2b(A)), '=', expr(Val)];
+     {Line, a2b(A), ?TEXT_COLOUR},
+     parse_symbol(Line, '='),
+     expr(Val)];
 record_def({record_field,Line,{atom,_La,A}}) ->
     [line(Line),
-     span("record_field", a2b(A))].
+     {Line, a2b(A), ?TEXT_COLOUR}].
 
 record_type_line(RecordDef, RecordType) ->
     RecordLine = element(2, RecordDef),
@@ -262,8 +256,8 @@ clause({clause, Line, Head, GuardGroups, Body}) ->
 
 clause(Name, {clause,Line,Head,GuardGroups,Body}) ->
     [line(Line),
-     span(<<"function">>, atom_to_list(Name)),
-     head(Head),
+     {Line, atom_to_list(Name), ?FUN_COLOUR},
+     head(Line, Head),
      separate(';', lists:map(fun guard_group/1, GuardGroups)),
      '->',
      separate(lists:map(fun expr/1, Body))].
@@ -284,7 +278,7 @@ case_clause({clause, Line, [Head], GuardGroups, Body}) ->
      separate({Line, <<",">>, ?TEXT_COLOUR},
               lists:map(fun expr/1, Body))].
 
-head(Expressions) ->
+head(Line, Expressions) ->
     [parse_symbol(Line, '('),
      separate({Line, <<",">>, ?TEXT_COLOUR},
               lists:map(fun expr/1, Expressions)), ')'].
@@ -338,13 +332,16 @@ expr({'fun',Line,Body}) ->
              map_separate(fun(Clause) -> clause('', Clause) end, Clauses)];
         {function,Fun,Arity} ->
             [line(Line),
-             function(Fun), parse_symbol(Line, '/'),
-             arity(Arity)];
+             {Line, a2b(Fun), ?FUN_COLOUR},
+             parse_symbol(Line, '/'),
+             arity(Line, Arity)];
         {function,M,F,A} when is_atom(M), is_atom(F), is_integer(A) ->
             [line(Line),
-             span(<<"module">>, a2b(M)), parse_symbol(Line, ':'),
-             function(F), parse_symbol(Line, '/'),
-             arity(A)];
+             {Line, a2b(M), ?MODULE_COLOUR},
+             parse_symbol(Line, ':'),
+             {Line, a2b(F), ?FUN_COLOUR},
+             parse_symbol(Line, '/'),
+             arity(Line, A)];
         {function,M0,F0,A0} ->
             %% R15: fun M:F/A with variables.
             M = expr(M0),
@@ -516,7 +513,9 @@ bit_type(Line, {Atom, Integer}) when is_atom(Atom), is_integer(Integer) ->
 
 expr_field({record_field,Lf,{atom,_La,F},Expr}) ->
     [line(Lf),
-     span(F), '=', expr(Expr)];
+     {Lf, a2b(F), ?TEXT_COLOUR},
+     parse_symbol(Lf, '='),
+     expr(Expr)];
 expr_field({record_field,Lf,{var,_La,'_'},Expr}) ->
     [line(Lf),
      parse_symbol(Lf, '_'),
@@ -661,8 +660,8 @@ type({type,Line,map,Ps}) ->
 type({type,Line,record,[{atom,_La,N}|Fs]}) ->
     Fs1 = field_types(Fs),
     [line(Line),
-     {Line, <<"#">>, ?RECORD_HASH},
-     {Line, a2b(N), ?RECORD_NAME},
+     {Line, <<"#">>, ?RECORD_HASH_COLOUR},
+     {Line, a2b(N), ?RECORD_NAME_COLOUR},
      parse_symbol(Line, '{'),
      Fs1,
      parse_symbol(Line, '}')];
@@ -752,10 +751,10 @@ bin({bin_element,Line,Var,Size,MaybeTypes}) ->
          default ->
              "";
          _ ->
-             [parse_symbol(Line, '/'),
              Fun = fun(MaybeType) ->
                        bit_type(Line, MaybeType)
                    end,
+             [parse_symbol(Line, '/'),
              map_separate('-', Fun, MaybeTypes)]
      end].
 
