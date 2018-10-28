@@ -140,7 +140,7 @@ tuple({attribute,_AttributeLine,file,{File,_FileLine}}) ->	%This is valid anywhe
 tuple({attribute,Line,export,Es0}) ->
     [line(Line),
      parse_symbol(Line, '-'),
-     span("export"),
+     parse_symbol(Line, export),
      parse_symbol(Line, '['),
      farity_list(Line, Es0),
      parse_symbol(Line, ']'),
@@ -170,7 +170,7 @@ tuple({attribute,Line,record,{Name,Defs}}) ->
      parse_symbol(Line, '-'),
      parse_symbol(Line, 'record'),
      parse_symbol(Line, '('),
-     span("atom", atom_to_list(Name)),
+     atom(Line, Name),
      parse_symbol(Line, ','),
      parse_symbol(Line, '{'),
      record_defs(Defs),
@@ -255,7 +255,7 @@ clause({clause, Line, Head, GuardGroups, Body}) ->
 
 clause(Name, {clause,Line,Head,GuardGroups,Body}) ->
     [line(Line),
-     span(<<"function">>, atom_to_list(Name)),
+     function(Line, Name),
      head(Line, Head),
      separate(';', lists:map(fun guard_group/1, GuardGroups)),
      '->',
@@ -490,7 +490,7 @@ expr({record,Line,Name,ExprFields}) ->
      [{Line, <<"#">>, ?RECORD_HASH_COLOUR},
       {Line, a2b(Name), ?RECORD_NAME_COLOUR},
       parse_symbol(Line, '{'),
-      map_separate(fun expr_field/1, exprFields),
+      map_separate(fun expr_field/1, ExprFields),
       parse_symbol(Line, '}')]];
 expr({record_index,Line,Name,Field}) ->
     [line(Line),
@@ -892,6 +892,8 @@ parse_symbol(Line, record) ->
     {Line, <<"record">>, ?RECORD_DIRECTIVE_COLOUR};
 parse_symbol(Line, 'catch') ->
     {Line, <<"catch">>, ?CATCH_COLOUR};
+parse_symbol(Line, 'export') ->
+    {Line, <<"catch">>, ?EXPORT_COLOUR};
 
 parse_symbol(Line, Atom) ->
     io:format("No colour specified for atom '~p' on line ~p~n",
