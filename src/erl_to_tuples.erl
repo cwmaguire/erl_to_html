@@ -14,7 +14,8 @@
 %%
 -module(erl_to_tuples).
 
--include("colours.hrl").
+-include("colour_tuples.hrl").
+-define(SPACE, $ ).
 
 -export([write_tuples/1]).
 -export([parse_transform/2]).
@@ -126,54 +127,56 @@ tuple({attribute,Line,module,Mod}) ->
      module(Line, Mod),
      parse_symbol(Line, ')'),
      parse_symbol(Line, '.')];
-tuple({attribute,_AttributeLine,file,{File,FileLine}}) ->	%This is valid anywhere.
+tuple({attribute,_AttributeLine,file,{File,_FileLine}}) ->	%This is valid anywhere.
     %% Manually set this to 0 to come before any source lines
     [line(0),
      parse_symbol(0, '%'),
      parse_symbol(0, '-'),
      parse_symbol(0, 'file'),
      parse_symbol(0, '('),
-     {FileLine, File, ?TEXT_COLOUR},
+     {0, list_to_binary(File), ?GREY},
      parse_symbol(0, ')'),
      parse_symbol(0, '.')];
 tuple({attribute,Line,export,Es0}) ->
     [line(Line),
      parse_symbol(Line, '-'),
-     {Line, <<"export">>, ?EXPORT_COLOUR},
+     span("export"),
      parse_symbol(Line, '['),
-     farity_list(Line, Es0), parse_symbol(Line, ']'),
-     '.'];
+     farity_list(Line, Es0),
+     parse_symbol(Line, ']'),
+     parse_symbol(Line, '.')];
      tuple({attribute,Line,import,{Mod,Is0}}) ->
     [line(Line),
      parse_symbol(Line, '-'),
-     {Line, <<"import">>, ?TEXT_COLOUR},
+     parse_symbol(Line, 'import'),
      parse_symbol(Line, ','),
-     {Line, a2b(Mod), ?MODULE_COLOUR},
+     module(Line, Mod),
      parse_symbol(Line, '('),
      parse_symbol(Line, '['),
-     farity_list(Line, Is0), parse_symbol(Line, ']'),
+     farity_list(Line, Is0),
+     parse_symbol(Line, ']'),
      parse_symbol(Line, ')'),
-     '.'];
+     parse_symbol(Line, '.')];
 tuple({attribute,Line,compile,C}) ->
     [line(Line),
      parse_symbol(Line, '-'),
-     {Line, <<"compile">>, ?TEXT_COLOUR},
+     parse_symbol(Line, 'compile'),
      parse_symbol(Line, '('),
-     {Line, atom_to_list(C), ?TEXT_COLOUR},
+     parse_symbol(Line, C),
      parse_symbol(Line, ')'),
      parse_symbol(Line, '.')];
 tuple({attribute,Line,record,{Name,Defs}}) ->
     [line(Line),
      parse_symbol(Line, '-'),
-     {Line, <<"record">>, ?TEXT_COLOUR},
+     parse_symbol(Line, 'record'),
      parse_symbol(Line, '('),
-     {Line, atom_to_list(Name), ?RECORD_NAME_COLOUR},
+     span("atom", atom_to_list(Name)),
      parse_symbol(Line, ','),
      parse_symbol(Line, '{'),
      record_defs(Defs),
      parse_symbol(Line, '}'),
      parse_symbol(Line, ')'),
-     '.'];
+     parse_symbol(Line, '.')];
 tuple({attribute,Line,asm,{function,_N,_A,_Code}}) ->
     line(Line);
 tuple({attribute,Line,_Attr,_Val}) ->		%The general attribute.
@@ -187,17 +190,13 @@ tuple({error,E}) ->
 tuple({warning,W}) ->
     {warning,W};
 tuple({eof,Line}) ->
-    [line(Line),
-     {Line, <<"eof">>, ?TEXT_COLOUR}].
+    [line(Line), {Line, <<"eof">>, ?DARK_GREY}].
 
 farity_list(Line, FunArities) ->
-    Fun = fun(ArityItem) ->
-              farity(Line, ArityItem)
-          end,
-    separate(lists:map(Fun, FunArities)).
+    separate(lists:map(fun farity/1, [{Line, FA} || FA <- FunArities])).
 
-farity(Line, {Name, Arity}) ->
-    [function(Line, Name),
+farity({Line, {Name, Arity}}) ->
+    [parse_symbol(Line, Name),
      parse_symbol(Line, '/'),
      arity(Line, Arity)].
 
@@ -256,7 +255,7 @@ clause({clause, Line, Head, GuardGroups, Body}) ->
 
 clause(Name, {clause,Line,Head,GuardGroups,Body}) ->
     [line(Line),
-     {Line, atom_to_list(Name), ?FUN_COLOUR},
+     span(<<"function">>, atom_to_list(Name)),
      head(Line, Head),
      separate(';', lists:map(fun guard_group/1, GuardGroups)),
      '->',
@@ -332,14 +331,14 @@ expr({'fun',Line,Body}) ->
              map_separate(fun(Clause) -> clause('', Clause) end, Clauses)];
         {function,Fun,Arity} ->
             [line(Line),
-             {Line, a2b(Fun), ?FUN_COLOUR},
+             function(Line, Fun),
              parse_symbol(Line, '/'),
              arity(Line, Arity)];
         {function,M,F,A} when is_atom(M), is_atom(F), is_integer(A) ->
             [line(Line),
-             {Line, a2b(M), ?MODULE_COLOUR},
+             module(Line, M),
              parse_symbol(Line, ':'),
-             {Line, a2b(F), ?FUN_COLOUR},
+             function(Line, F),
              parse_symbol(Line, '/'),
              arity(Line, A)];
         {function,M0,F0,A0} ->
@@ -348,11 +347,11 @@ expr({'fun',Line,Body}) ->
             F = expr(F0),
             A = expr(A0),
             [line(Line),
-             {Line, a2b(M), ?MODULE_COLOUR},
+             module(Line, M),
              parse_symbol(Line, ':'),
-             {Line, a2b(F), ?TEXT_COLOUR},
+             function(Line, F),
              parse_symbol(Line, '/'),
-             {Line, "arity", A}]
+             arity(Line, A)]
     end;
 expr({call,Line,Fun,Args}) ->
     %% N.B. If F an atom then call to local function or BIF, if F a
@@ -361,41 +360,48 @@ expr({call,Line,Fun,Args}) ->
      %io:format(user, "calling expr(~p)~n", [Fun]),
     [line(Line),
      %fun_name(Fun), '(', map_separate(fun expr/1, Args), ')'];
-     fun_name(Fun), parse_symbol(Line, '('),
+     fun_name(Fun),
+     parse_symbol(Line, '('),
      map_separate(fun expr/1, Args), ')'];
 expr({'catch',Line,Expression}) ->
     %% No new variables added.
     [line(Line),
-     'catch', expr(Expression)];
+     parse_symbol(Line, 'catch'),
+     expr(Expression)];
 expr({match,Line,Expr1,Expr2}) ->
     [line(Line),
-     expr(Expr1), '=', expr(Expr2)];
+     expr(Expr1),
+     parse_symbol(Line, '='),
+     expr(Expr2)];
 expr({bin,Line,BinElements}) ->
     [line(Line),
      parse_symbol(Line, '<<'),
-     map_separate(fun bin/1, BinElements), '>>'];
+     map_separate(fun bin/1, BinElements),
+     parse_symbol(Line, '>>')];
 expr({op,Line,Op,A}) ->
     [line(Line),
-     {Line, a2b(Op), ?TEXT_COLOUR},
+     %{Line, a2b(Op), ?TEXT_COLOUR},
+     parse_symbol(Line, Op),
      expr(A)];
 expr({op,Line,'==',L,R}) ->
     [line(Line),
      expr(L),
-     {Line, <<"==">>, ?DOUBLE_EQUALS_COLOUR},
+     parse_symbol(Line, '=='),
      expr(R)];
 expr({op,Line,Op,L,R}) ->
     [line(Line),
      expr(L),
-     {Line, a2b(Op), ?ATOM_COLOUR},
+     parse_symbol(Line, Op),
      expr(R)];
 expr({remote, Line, {atom, _MLine, Module}, {atom, _FLine, Function}}) ->
     [line(Line),
-     {Line, a2b(Module), ?MODULE_COLOUR},
+     module(Line, Module),
      parse_symbol(Line, ':'),
      function(Line, Function)];
 expr({nil, Line}) ->
-    [line(Line), parse_symbol(Line, '['),
-     ']'];
+    [line(Line),
+     parse_symbol(Line, '['),
+     parse_symbol(Line, ']')];
 expr({var,Line,V}) ->
     [line(Line),
      var(Line, V)];
@@ -404,10 +410,10 @@ expr({integer,Line,I}) ->
      integer(Line, I)];
 expr({char,Line,C}) ->
     [line(Line),
-     {Line, <<$$, (list_to_binary(C))/binary>>, ?CHAR_COLOUR}];
+     {Line, list_to_binary([$$, C]), ?CHAR_COLOUR}];
 expr({float,Line,F}) ->
     [line(Line),
-     {Line, list_to_binary(hd(io_lib:format("~w", [F]))), ?FLOAT_COLOUR}];
+     {Line, io_lib:format("~w", [F]), ?FLOAT_COLOUR}];
 expr({atom,Line,A}) when A == ':';
                          A == '<<';
                          A == '>>';
@@ -426,7 +432,7 @@ expr({atom,Line,A}) when A == ':';
                          A == '(';
                          A == '(';
                          A == '"' ->
-    io:format(user, "{atom, Line, ~p}", [A]),
+    %io:format(user, "{atom, Line, ~p}", [A]),
     [line(Line),
      {Line, <<$', (a2b(A))/binary, $'>>, ?ATOM_COLOUR}];
 expr({atom,Line,A}) ->
@@ -441,18 +447,23 @@ expr({string,Line,S}) ->
      '"'];
 expr({tuple,Line,Exprs}) ->
     [line(Line),
-     ['{', map_separate(fun expr/1, Exprs), '}']];
+     [parse_symbol(Line, '{'),
+      map_separate(fun expr/1, Exprs),
+      parse_symbol(Line, '}')]];
 %% There's a special case for all cons's after the first: {tail, _}
 %% so this is a list of one item.
 expr({cons,Line,Head,{nil, _}}) ->
     [line(Line),
      parse_symbol(Line, '['),
-     expr(Head), ']'];
+     expr(Head),
+     parse_symbol(Line, ']')];
 expr({cons,Line,Head,{var, _Line2, '_'}}) ->
     [line(Line),
      parse_symbol(Line, '['),
-     expr(Head), '|', parse_symbol(Line, '_'),
-     ']'];
+     expr(Head),
+     parse_symbol(Line, '|'),
+     parse_symbol(Line, '_'),
+     parse_symbol(Line, ']')];
 expr(_Cons = {cons,Line,Head,Tail}) ->
     %io:format(user, "Cons -> Tail = ~p~n", [Cons]),
     [line(Line),
@@ -460,9 +471,8 @@ expr(_Cons = {cons,Line,Head,Tail}) ->
      [expr(Head), ',' | expr({tail, Tail})], ']'];
 expr(_Tail = {tail, {cons, Line, Head, {nil, _}}}) ->
     %io:format(user, "Tail 1 = ~p~n", [Tail]),
-
     [line(Line),
-     [expr(Head)]];
+     expr(Head)];
 expr(_Tail_ = {tail, {cons, Line, Head, Tail}}) ->
     %io:format(user, "Tail 2 = ~p~n", [Tail_]),
     [line(Line),
@@ -477,22 +487,22 @@ expr({tail, Unknown}) ->
     io:format(user, "Unknown tail ~p~n", [Unknown]);
 expr({record,Line,Name,ExprFields}) ->
     [line(Line),
-     [parse_symbol(Line, '#'),
+     [{Line, <<"#">>, ?RECORD_HASH_COLOUR},
       {Line, a2b(Name), ?RECORD_NAME_COLOUR},
       parse_symbol(Line, '{'),
-      map_separate(fun expr_field/1, ExprFields),
+      map_separate(fun expr_field/1, exprFields),
       parse_symbol(Line, '}')]];
 expr({record_index,Line,Name,Field}) ->
     [line(Line),
-     [parse_symbol(Line, '#'),
+     [{Line, '#', ?RECORD_HASH_COLOUR},
       {Line, a2b(Name), ?RECORD_NAME_COLOUR},
       parse_symbol(Line, '.'),
       expr(Field)]];
 expr({record_field,Line,Expression,RecName,Field}) ->
     [line(Line),
      [expr(Expression),
-      parse_symbol(Line, '#'),
-      {Line, atom_to_list(RecName), ?RECORD_NAME_COLOUR},
+      {Line, '#', ?RECORD_HASH_COLOUR},
+      {Line, a2b(RecName), ?RECORD_NAME_COLOUR},
       parse_symbol(Line, '.'),
       expr(Field)]];
 % How does this happen? (Foo).bar ?
@@ -504,22 +514,23 @@ expr(UnknownExpr) ->
     {-1, <<"error">>, ?RED}.
 
 
-bit_type(Line, Atom) when is_atom(Atom) ->
-    {Line, Atom, ?ATOM_COLOUR};
-bit_type(Line, {Atom, Integer}) when is_atom(Atom), is_integer(Integer) ->
-    [{Line, Atom, ?ATOM_COLOUR},
+bit_type({Line, Atom}) when is_atom(Atom) ->
+    parse_symbol(Line, Atom);
+bit_type({Line, {Atom, Integer}}) when is_atom(Atom), is_integer(Integer) ->
+    [atom(Line, Atom),
      parse_symbol(Line, ':'),
-     {Line, Integer, ?INTEGER_COLOUR}].
+     integer(Line, Integer)].
 
 expr_field({record_field,Lf,{atom,_La,F},Expr}) ->
     [line(Lf),
-     {Lf, a2b(F), ?TEXT_COLOUR},
+     {Lf, a2b(F), ?RECORD_FIELD_COLOUR},
      parse_symbol(Lf, '='),
      expr(Expr)];
 expr_field({record_field,Lf,{var,_La,'_'},Expr}) ->
     [line(Lf),
      parse_symbol(Lf, '_'),
-     '=', expr(Expr)].
+     parse_symbol(Lf, '='),
+     expr(Expr)].
 
 guard_group(GuardGroup) ->
     separate(lists:map(fun expr/1, GuardGroup)).
@@ -733,7 +744,9 @@ lc_bc_qual({generate,Line,Target,Source}) ->
      expr(Source),
      parse_symbol(Line, ']')];
 lc_bc_qual({b_generate,_Line,Target,Source}) ->
-    [expr(Target), '<=', expr(Source)];
+    [expr(Target),
+     '<=',
+     expr(Source)];
 lc_bc_qual(FilterExpression) ->
     expr(FilterExpression).
 
@@ -742,20 +755,19 @@ bin({bin_element,Line,Var,Size,MaybeTypes}) ->
      expr(Var),
      case Size of
          default ->
-             "";
+             [];
          Int ->
              [parse_symbol(Line, ':'),
               {Line, i2b(Int), ?TEXT_COLOUR}]
      end,
      case MaybeTypes of
          default ->
-             "";
+             [];
          _ ->
-             Fun = fun(MaybeType) ->
-                       bit_type(Line, MaybeType)
-                   end,
+             BitTypes = [{Line, BT} || BT <- MaybeTypes],
+             Separator = parse_symbol(Line, '-'),
              [parse_symbol(Line, '/'),
-             map_separate('-', Fun, MaybeTypes)]
+              map_separate(Separator, fun bit_type/1, BitTypes)]
      end].
 
 %bin_element({bin_element,Line,Expression,Size1,Type1}) ->
@@ -870,9 +882,21 @@ parse_symbol(Line, module) ->
     {Line, <<"module">>, ?MODULE_COLOUR};
 parse_symbol(Line, 'fun') ->
     {Line, <<"fun">>, ?FUN_COLOUR};
+parse_symbol(Line, file) ->
+    {Line, <<"file">>, ?FILE_COLOUR};
+parse_symbol(Line, import) ->
+    {Line, <<"import">>, ?IMPORT_DIRECTIVE_COLOUR};
+parse_symbol(Line, compile) ->
+    {Line, <<"compile">>, ?COMPILE_DIRECTIVE_COLOUR};
+parse_symbol(Line, record) ->
+    {Line, <<"record">>, ?RECORD_DIRECTIVE_COLOUR};
+parse_symbol(Line, 'catch') ->
+    {Line, <<"catch">>, ?CATCH_COLOUR};
 
 parse_symbol(Line, Atom) ->
-    {Line, a2b(Atom), ?ATOM_COLOUR}.
+    io:format("No colour specified for atom '~p' on line ~p~n",
+              [Atom, Line]),
+    {Line, a2b(Atom), ?GREY}.
 
 line(Line) ->
     {Line, i2b(Line), ?LINE_COLOUR}.
