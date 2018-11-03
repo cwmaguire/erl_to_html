@@ -17,14 +17,14 @@
 -include("colour_tuples.hrl").
 -define(SPACE, $ ).
 
--export([write_tuples/1]).
+-export([get_tuples/1]).
 -export([parse_transform/2]).
 -export([print_colour/0]).
 
 print_colour() ->
     io:format("~p~n", [?TEXT_COLOUR]).
 
-write_tuples(Filename) ->
+get_tuples(Filename) ->
     io:format(user, "Compiling ~p~n", [Filename]),
     Result = compile:file(Filename, [report_errors,
                                      return_errors,
