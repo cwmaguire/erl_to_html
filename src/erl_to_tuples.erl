@@ -26,13 +26,13 @@ print_colour() ->
 
 write_tuples(Filename) ->
     io:format(user, "Compiling ~p~n", [Filename]),
-    Result = compile:file(Filename, [basic_validation,
-                                     report_errors,
+    Result = compile:file(Filename, [report_errors,
                                      return_errors,
                                      {parse_transform, ?MODULE},
                                      {d, filename, Filename},
                                      {i, "include"}]),
-    io:format(user, "Compile result:~n~p~n", [Result]).
+    io:format(user, "Compile result:~n~p~n", [Result]),
+    Result.
 
 parse_transform(Forms, Options) ->
     Filename = filename(Options),
@@ -47,8 +47,15 @@ parse_transform(Forms, Options) ->
                     "\t~p~n",
               [Forms, Options]),
 
-    _Tuples = lists:flatten(lines(tuples(Forms), Indents, Comments)),
-    %erl_to_png:render(Tuples),
+    Tuples = lists:flatten(lines(tuples(Forms), Indents, Comments)),
+    write_terms(Filename ++ ".tup", Tuples),
+    %{ok, TupleFile} = file:open(Filename ++ ".tup", [write]),
+    %case file:write(HtmlFile, [HTML, <<"\n">>]) of
+        %ok ->
+            %io:format(user, "Write successful~n", []);
+        %Error ->
+            %io:format(user, "Write failed: ~p~n", [Error])
+    %end,
     Forms.
 
 filename(Options) ->
@@ -58,6 +65,12 @@ filename(Options) ->
         [Filename | _] ->
             Filename % test comment
     end.
+
+write_terms(Filename, List) ->
+    Format = fun(Term) -> io_lib:format("~tp.~n", [Term]) end,
+    Text = lists:map(Format, List),
+    file:write_file(Filename, Text).
+
 
 %% walk the tree adding comments and indents scanned from the original source
 lines(Tree, Indents, Comments) ->
