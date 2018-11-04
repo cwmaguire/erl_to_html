@@ -521,6 +521,7 @@ parse_control_sequences(String) when is_list(String) ->
     Parsed = lists:foldl(fun pcs/2, [list_to_binary(String)], CtrlSeqs),
     lists:map(fun span_bins/1, Parsed).
 
+% TODO: how would the 2nd argument every have a tuple in it?
 pcs(_, []) ->
     [];
 pcs(CtrlSeq, [Tuple | Rest]) when is_tuple(Tuple) ->
