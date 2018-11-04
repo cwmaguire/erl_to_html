@@ -282,10 +282,10 @@ case_clause({clause, Line, [Head], GuardGroups, Body}) ->
          _ ->
              F = fun guard_group/1,
              [{Line, <<"when">>, ?TEXT_COLOUR},
-              separate({Line, ';', ?TEXT_COLOUR},
+              separate(parse_symbol(Line, ';'),
                        lists:map(F, GuardGroups))]
      end,
-     '->',
+     parse_symbol(Line, '->'),
      separate({Line, <<",">>, ?TEXT_COLOUR},
               lists:map(fun expr/1, Body))].
 
