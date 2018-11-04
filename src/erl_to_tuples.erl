@@ -18,6 +18,7 @@
 -define(SPACE, $ ).
 
 -export([get_tuples/1]).
+-export([get_tuples/2]).
 -export([parse_transform/2]).
 -export([print_colour/0]).
 
@@ -25,14 +26,18 @@ print_colour() ->
     io:format("~p~n", [?TEXT_COLOUR]).
 
 get_tuples(Filename) ->
-    io:format(user, "Compiling ~p~n", [Filename]),
-    Result = compile:file(Filename, [report_errors,
-                                     return_errors,
-                                     {parse_transform, ?MODULE},
-                                     {d, filename, Filename},
-                                     {i, "include"}]),
-    io:format(user, "Compile result:~n~p~n", [Result]),
-    Result.
+    get_tuples(Filename, ["include"]).
+
+get_tuples(Filename, IncludeDirs) ->
+    IncludeArgs = [{i, Dir} || Dir <- IncludeDirs],
+    Args = [basic_validation,
+            report_errors,
+            return_errors,
+            {parse_transform, ?MODULE},
+            {d, filename, Filename} | IncludeArgs],
+    _Result = compile:file(Filename, Args),
+    {ok, Tuples} = file:consult(Filename ++ ".tup"),
+    Tuples.
 
 parse_transform(Forms, Options) ->
     Filename = filename(Options),
@@ -41,21 +46,15 @@ parse_transform(Forms, Options) ->
     io:format(user, "Scanning ~p for comments~n", [Filename]),
     Comments = get_comments:comments(Filename),
 
-    io:format(user, "Parse transforming forms: ~n"
-                    "\t~p~n"
-                    "\t with Options:~n"
-                    "\t~p~n",
-              [Forms, Options]),
+    % DEBUG:
+    % io:format(user, "Parse transforming forms: ~n"
+    %                 "\t~p~n"
+    %                 "\t with Options:~n"
+    %                 "\t~p~n",
+    %           [Forms, Options]),
 
     Tuples = lists:flatten(lines(tuples(Forms), Indents, Comments)),
     write_terms(Filename ++ ".tup", Tuples),
-    %{ok, TupleFile} = file:open(Filename ++ ".tup", [write]),
-    %case file:write(HtmlFile, [HTML, <<"\n">>]) of
-        %ok ->
-            %io:format(user, "Write successful~n", []);
-        %Error ->
-            %io:format(user, "Write failed: ~p~n", [Error])
-    %end,
     Forms.
 
 filename(Options) ->
@@ -823,22 +822,6 @@ bin({bin_element,Line,Var,Size,MaybeTypes}) ->
               map_separate(Separator, fun bit_type/1, BitTypes)]
      end].
 
-%bin_element({bin_element,Line,Expression,Size1,Type1}) ->
-    %Size2 = case Size1 of
-		 %default ->
-		 %"";
-		 %_ ->
-		 %[':', expr(Size1)]
-	 %end,
-    %Type2 = case Type1 of
-		 %default ->
-		 %"";
-		 %_ ->
-		 %['/', separate('-', lists:map(fun bit_type/1, Type1))]
-	 %end,
-    %[line(Line),
-     %expr(Expression), Size2, Type2].
-
 var(Line, Atom) ->
     {Line, a2b(Atom), ?VARIABLE_COLOUR}.
 
@@ -962,7 +945,6 @@ parse_symbol(Line, Atom) ->
     {Line, a2b(Atom), ?GREY}.
 
 line(_Line) ->
-    %{Line, i2b(Line), ?LINE_COLOUR}.
     [].
 
 separate(List) when is_list(List) ->
