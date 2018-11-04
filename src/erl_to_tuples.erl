@@ -806,9 +806,12 @@ bin({bin_element,Line,Var,Size,MaybeTypes}) ->
      case Size of
          default ->
              [];
-         Int ->
+         {integer, _Line, Int} ->
              [parse_symbol(Line, ':'),
-              {Line, i2b(Int), ?TEXT_COLOUR}]
+              {Line, i2b(Int), ?TEXT_COLOUR}];
+         {var, _Line, SizeVar} ->
+             [parse_symbol(Line, ':'),
+              {Line, a2b(SizeVar), ?VAR_COLOUR}]
      end,
      case MaybeTypes of
          default ->
