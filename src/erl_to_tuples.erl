@@ -44,7 +44,7 @@ parse_transform(Forms, Options) ->
     io:format(user, "Scanning ~p for indentation~n", [Filename]),
     Indents = get_indents:indents(Filename),
     io:format(user, "Scanning ~p for comments~n", [Filename]),
-    Comments = get_comments:comments(Filename),
+    Comments = get_comments:comments(Filename, " "),
 
     % DEBUG:
     % io:format(user, "Parse transforming forms: ~n"
@@ -73,6 +73,7 @@ write_terms(Filename, List) ->
 
 %% walk the tree adding comments and indents scanned from the original source
 lines(Tree, Indents, Comments) ->
+    %io:format("Lines.~n"),
     {Tree2, _} = lines([], Tree, 0, Indents, Comments),
     StartLine = [{_Line = 0, _LineNumber = <<"0">>, ?LINE_COLOUR},
                  {_Line = 0, list_to_binary(string:copies(" ", maps:get(1, Indents, 0))), ?TEXT_COLOUR}],
@@ -81,34 +82,47 @@ lines(Tree, Indents, Comments) ->
 lines(Tree, [], Line, _Indents, _Comments)  ->
     {lists:reverse(Tree), Line};
 lines(Tree, [Head | Rest], Line, Indents, Comments) when is_list(Head) ->
+    %io:format("Lines. Subtree. Line: ~p~n", [Line]),
     {SubTree, CurrLine} = lines([], Head, Line, Indents, Comments),
     lines([SubTree | Tree], Rest, CurrLine, Indents, Comments);
-lines(Tree, [{line, Line} | Rest], Line, Indents, Comments) ->
+lines(Tree, [T = {Same, _, _} | Rest], Line, Indents, Comments)
+        when Same == noline; Same =< Line ->
     % same line
-    lines(Tree, Rest, Line, Indents, Comments);
-lines(Tree, [{line, NewLine} | Rest], Line, Indents, Comments) ->
+    %io:format("Lines. Same line. Line: ~p~n", [Line]),
+    lines([T | Tree], Rest, Line, Indents, Comments);
+lines(Tree, Lines = [{NewLine, _, _} | _], Line, Indents, Comments)
+        when NewLine > Line + 1 ->
+    %io:format("Skipped line ~p and went to ~p. Filling in.~n",
+              %[Line + 1, NewLine]),
+    lines(Tree, [{Line + 1, <<"">>, ?DARK_GREY} | Lines], Line, Indents, Comments);
+lines(Tree, [T = {NewLine, _, _} | Rest], Line, Indents, Comments) ->
+    %io:format("Old line: ~p, new line: ~p~n", [Line, NewLine]),
     EndOfLine =
         case maps:get(Line, Comments, undefined) of
             undefined ->
                 [];
             Comment ->
-                parse_comment(Line, Comment)
+                parse_comment(Comment, Line)
         end,
-    StartLine = EndOfLine ++
-                 [%{Line, i2b(Line + 1), ?LINE_COLOUR},
-                  {Line + 1,
-                   list_to_binary(string:copies(" ", maps:get(NewLine, Indents, 0))),
-                   ?TEXT_COLOUR}],
-    lines([StartLine | Tree],
-          [{line, NewLine} | Rest],
+    NumIndents = maps:get(NewLine, Indents, 0),
+    %io:format(user, "NumIndents = ~p~n", [NumIndents]),
+    NextLine = {Line + 1,
+                list_to_binary(string:copies(" ", NumIndents)),
+                ?TEXT_COLOUR},
+    %io:format(user, "NextLine = ~p~n", [NextLine]),
+    lines([T, EndOfLine, NextLine | Tree],
+          Rest,
           Line + 1,
           Indents,
           Comments);
 lines(Tree, [Head | Rest], Line, Indents, Comments) ->
+    %io:format("Lines. No Match.~nHead: ~p,~nLine: ~p~n", [Head, Line]),
     lines([Head | Tree], Rest, Line, Indents, Comments).
 
 parse_comment(Comment, Line) ->
-    parse_comment(_Text = "", _Parsed = [], Comment, Line).
+    CommentTuples = parse_comment(_Text = "", _Parsed = [], Comment, Line),
+    %io:format(user, "CommentTuples = ~p~n", [CommentTuples]),
+    CommentTuples.
 
 parse_comment(RemainingText, Parsed, _Comment = [], Line) ->
     TextTuple = {Line, RemainingText, ?COMMENT_COLOUR},

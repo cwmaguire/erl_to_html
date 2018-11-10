@@ -1,56 +1,64 @@
 -module(get_comments).
 
 -export([comments/1]).
+-export([comments/2]).
 
 -define(SPACE, $ ).
 
 comments(Filename) ->
-    {ok, Io} = file:open(Filename, [read]),
-    comments(Io, 1, #{}, file:read_line(Io)).
+    comments(Filename, "&nbsp;").
 
-comments(Io, Line, Lines, {ok, Data}) ->
-    comments(Io, Line + 1, add_line(Line, Lines, Data), file:read_line(Io));
-comments(_, _Line, Lines, eof) ->
+comments(Filename, Whitespace) ->
+    {ok, Io} = file:open(Filename, [read]),
+    comments(Io, 1, Whitespace, #{}, file:read_line(Io)).
+
+comments(Io, Line, WS, Lines, {ok, Data}) ->
+    comments(Io,
+             Line + 1,
+             WS,
+             add_line(Line, WS, Lines, Data),
+             file:read_line(Io));
+comments(_, _Line, _WS, Lines, eof) ->
     Lines.
 
-add_line(_EmptyLine, Lines, _Data = "\n") ->
+add_line(_EmptyLine, _WS, Lines, _Data = "\n") ->
     Lines;
-add_line(Line, Lines, Data) ->
-    case parse(Data) of
+add_line(Line, WS, Lines, Data) ->
+    case parse(Data, WS) of
         {comment, Comment} ->
             Lines#{Line => Comment};
         _ ->
             Lines
     end.
 
-parse(Text) ->
-    parse(text, "", Text).
+parse(Text, WS) ->
+    parse(text, WS, "", Text).
 
-parse(_, _, []) ->
+parse(_, _, _, []) ->
     undefined;
-parse(whitespace, Whitespace, Rest = [$% | _]) ->
+parse(whitespace, _WS, Whitespace, Rest = [$% | _]) ->
     [_ | NoNewline] = lists:reverse(Rest),
     {comment, Whitespace ++ lists:reverse(NoNewline)};
-parse(text, _, Rest = [$% | _]) ->
+parse(text, _, _, Rest = [$% | _]) ->
     [_ | NoNewline] = lists:reverse(Rest),
     {comment, lists:reverse(NoNewline)};
-parse(open_dquote, _, [$" | Rest]) ->
-    parse(text, undefined, Rest);
-parse(open_dquote, _, [_ | Rest]) ->
-    parse(open_dquote, undefined, Rest);
-parse(open_quote, _, [$' | Rest]) ->
-    parse(text, undefined, Rest);
-parse(open_quote, _, [_ | Rest]) ->
-    parse(open_quote, undefined, Rest);
-parse(text, _, [$" | Rest]) ->
-    parse(open_dquote, undefined, Rest);
-parse(_, _, [$' | Rest]) ->
-    parse(open_quote, undefined, Rest);
-parse(text, _, [?SPACE | Rest]) ->
-    parse(whitespace, "&nbsp;", Rest);
-parse(whitespace, Whitespace, [?SPACE | Rest]) ->
-    parse(whitespace, [$&, $n, $b, $s, $p, $; | Whitespace], Rest);
-parse(whitespace, _, [_ | Rest]) ->
-    parse(text, undefined, Rest);
-parse(text, _, [_ | Rest]) ->
-    parse(text, undefined, Rest).
+parse(open_dquote, WS, _, [$" | Rest]) ->
+    parse(text, WS, undefined, Rest);
+parse(open_dquote, WS, _, [_ | Rest]) ->
+    parse(open_dquote, WS, undefined, Rest);
+parse(open_quote, WS, _, [$' | Rest]) ->
+    parse(text, WS, undefined, Rest);
+parse(open_quote, WS, _, [_ | Rest]) ->
+    parse(open_quote, WS, undefined, Rest);
+parse(text, WS, _, [$" | Rest]) ->
+    parse(open_dquote, WS, undefined, Rest);
+parse(_, WS, _, [$' | Rest]) ->
+    parse(open_quote, WS, undefined, Rest);
+parse(text, WS, _, [?SPACE | Rest]) ->
+    parse(whitespace, WS, WS, Rest);
+parse(whitespace, WS, Whitespace, [?SPACE | Rest]) ->
+    parse(whitespace, WS, WS ++ Whitespace, Rest);
+parse(whitespace, WS, _, [_ | Rest]) ->
+    parse(text, WS, undefined, Rest);
+parse(text, WS, _, [_ | Rest]) ->
+    parse(text, WS, undefined, Rest).
