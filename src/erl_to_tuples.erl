@@ -53,7 +53,7 @@ parse_transform(Forms, Options) ->
     %                 "\t~p~n",
     %           [Forms, Options]),
 
-    Tuples = lists:flatten(lines(tuples(Forms), Indents, Comments)),
+    Tuples = sort(lists:flatten(lines(tuples(Forms), Indents, Comments))),
     write_terms(Filename ++ ".tup", Tuples),
     Forms.
 
@@ -228,6 +228,21 @@ tuple({warning,W}) ->
     {warning,W};
 tuple({eof,Line}) ->
     [line(Line), {Line, <<"eof">>, ?DARK_GREY}].
+
+sort(Tuples) ->
+    sort(Tuples, #{}).
+
+sort([], LineTuples) ->
+    Keys = lists:sort(maps:keys(LineTuples)),
+    lists:flatten([maps:get(K, LineTuples) || K <- Keys]);
+sort([Tuple = {Line, _, _} | Rest], LineTuples) ->
+    case maps:is_key(Line, LineTuples) of
+        true ->
+            #{Line := Tuples} = LineTuples,
+            sort(Rest, LineTuples#{Line => Tuples ++ [Tuple]});
+        false ->
+            sort(Rest, LineTuples#{Line => [Tuple]})
+    end.
 
 farity_list(Line, FunArities) ->
     separate(lists:map(fun farity/1, [{Line, FA} || FA <- FunArities])).
