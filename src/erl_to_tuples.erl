@@ -229,19 +229,21 @@ tuple({warning,W}) ->
 tuple({eof,Line}) ->
     [line(Line), {Line, <<"eof">>, ?DARK_GREY}].
 
-sort(Tuples) ->
-    sort(Tuples, #{}).
+sort(Tuples = [{Line, _, _} | _]) ->
+    sort(Tuples, #{}, Line).
 
-sort([], LineTuples) ->
+sort([], LineTuples, _) ->
     Keys = lists:sort(maps:keys(LineTuples)),
     lists:flatten([maps:get(K, LineTuples) || K <- Keys]);
-sort([Tuple = {Line, _, _} | Rest], LineTuples) ->
+sort([{noline, Bin, Colour} | Rest], LineTuples, Line) ->
+    sort([{Line, Bin, Colour} | Rest], LineTuples, Line);
+sort([Tuple = {Line, _, _} | Rest], LineTuples, _) ->
     case maps:is_key(Line, LineTuples) of
         true ->
             #{Line := Tuples} = LineTuples,
-            sort(Rest, LineTuples#{Line => Tuples ++ [Tuple]});
+            sort(Rest, LineTuples#{Line => Tuples ++ [Tuple]}, Line);
         false ->
-            sort(Rest, LineTuples#{Line => [Tuple]})
+            sort(Rest, LineTuples#{Line => [Tuple]}, Line)
     end.
 
 farity_list(Line, FunArities) ->
