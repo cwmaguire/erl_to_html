@@ -102,7 +102,11 @@ lines(Tree, [T = {NewLine, _, _} | Rest], Line, Indents, Comments) ->
             undefined ->
                 [];
             Comment ->
-                parse_comment(Comment, Line)
+                ParsedComment = parse_comment(Comment, Line),
+                io:format(user, "Found comment for line ~p:~n~p"
+                                "Parsed:~n~p~n",
+                          [Line, Comment, ParsedComment]),
+                ParsedComment
         end,
     NumIndents = maps:get(NewLine, Indents, 0),
     %io:format(user, "NumIndents = ~p~n", [NumIndents]),
@@ -125,19 +129,19 @@ parse_comment(Comment, Line) ->
     CommentTuples.
 
 parse_comment(RemainingText, Parsed, _Comment = [], Line) ->
-    TextTuple = {Line, RemainingText, ?COMMENT_COLOUR},
+    TextTuple = {Line, l2b(RemainingText), ?COMMENT_COLOUR},
     lists:reverse([TextTuple | Parsed]);
 parse_comment(Text, Parsed, "TODO" ++ Rest, Line) ->
-    TextTuple = {Line, Text, ?COMMENT_COLOUR},
-    KeywordTuple = {Line, "TODO", ?COMMENT_KEYWORD_COLOUR},
+    TextTuple = {Line, l2b(Text), ?COMMENT_COLOUR},
+    KeywordTuple = {Line, <<"TODO">>, ?COMMENT_KEYWORD_COLOUR},
     parse_comment("", [KeywordTuple, TextTuple | Parsed], Rest, Line);
 parse_comment(Text, Parsed, "NOTE" ++ Rest, Line) ->
-    TextTuple = {Line, Text, ?COMMENT_COLOUR},
-    KeywordTuple = {Line, "NOTE", ?COMMENT_KEYWORD_COLOUR},
+    TextTuple = {Line, l2b(Text), ?COMMENT_COLOUR},
+    KeywordTuple = {Line, <<"NOTE">>, ?COMMENT_KEYWORD_COLOUR},
     parse_comment("", [KeywordTuple, TextTuple | Parsed], Rest, Line);
 parse_comment(Text, Parsed, "FIXME" ++ Rest, Line) ->
-    TextTuple = {Line, Text, ?COMMENT_COLOUR},
-    KeywordTuple = {Line, "FIXME", ?COMMENT_KEYWORD_COLOUR},
+    TextTuple = {Line, l2b(Text), ?COMMENT_COLOUR},
+    KeywordTuple = {Line, <<"FIXME">>, ?COMMENT_KEYWORD_COLOUR},
     parse_comment("", [KeywordTuple, TextTuple | Parsed], Rest, Line);
 parse_comment(Text, Parsed, [Head | Rest], Line) ->
     parse_comment(Text ++ [Head], Parsed, Rest, Line).
@@ -859,6 +863,9 @@ i2b(I) ->
 
 a2b(A) ->
     list_to_binary(atom_to_list(A)).
+
+l2b(L) ->
+    list_to_binary(L).
 
 parse_symbol(Line, '(') ->
     {Line, <<"(">>, ?TEXT_COLOUR};
