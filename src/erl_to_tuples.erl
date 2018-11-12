@@ -693,7 +693,7 @@ pcs(CtrlSeq, [Bin | Rest]) ->
 ctrl_seq_bin(Line, CtrlSeq = <<$~, _>>) ->
     {Line, CtrlSeq, ?CONTROL_SEQUENCE_COLOUR};
 ctrl_seq_bin(Line, String) ->
-    {Line, String, ?TEXT_COLOUR}.
+    {Line, String, ?STRING_COLOUR}.
 
 %% -type lc_bc_qual([Qualifier]) -> [Qualifier].
 %%  Allow filters to be both guard tests and general expressions.
