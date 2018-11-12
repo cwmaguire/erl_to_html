@@ -897,7 +897,12 @@ bin({bin_element,Line,Var,Size,MaybeTypes}) ->
               {Line, i2b(Int), ?TEXT_COLOUR}];
          {var, _Line, SizeVar} ->
              [parse_symbol(Line, ':'),
-              {Line, a2b(SizeVar), ?VAR_COLOUR}]
+              {Line, a2b(SizeVar), ?VAR_COLOUR}];
+         Op = {op, Line, _, _, _} ->
+             [parse_symbol(Line, ':'),
+              parse_symbol(Line, '('),
+              expr(Op),
+              parse_symbol(Line, ')')]
      end,
      case MaybeTypes of
          default ->
