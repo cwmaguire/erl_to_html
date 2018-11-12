@@ -149,7 +149,7 @@ lines(Tree, [T = {NewLine, _, _} | Rest], Line, Indents, Comments) ->
               list_to_binary(string:copies(" ", NumIndents)),
               ?TEXT_COLOUR},
     %io:format(user, "NextLine = ~p~n", [NextLine]),
-    lines([Comment, Indent, T | Tree],
+    lines([T, Indent, Comment | Tree],
           Rest,
           Line + 1,
           Indents,
