@@ -656,7 +656,7 @@ guard_group(GuardGroup) ->
 
 fun_name({atom, Line, Name}) ->
     [%line(Line),
-     {Line, Name, ?TEXT_COLOUR}];
+     {Line, a2b(Name), ?TEXT_COLOUR}];
 fun_name(_A = {remote, LineR, {atom, _LineM, Module}, {atom, LineF, Function}}) ->
      %io:format(user, "fun_name(~p)~n", [A]),
     [%line(LineR),
