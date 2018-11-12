@@ -40,6 +40,7 @@ get_tuples(Filename, IncludeDirs) ->
     Tuples.
 
 parse_transform(Forms, Options) ->
+    %io:format(user, "Forms = ~p~n", [Forms]),
     Filename = filename(Options),
     io:format(user, "Scanning ~p for indentation~n", [Filename]),
     Indents = get_indents:indents(Filename),
@@ -53,7 +54,14 @@ parse_transform(Forms, Options) ->
     %                 "\t~p~n",
     %           [Forms, Options]),
 
-    Tuples = sort(lists:flatten(lines(tuples(Forms), Indents, Comments))),
+    Forms2 = delete_includes(Forms),
+
+    Tuples0 = tuples(Forms2),
+    %io:format(user, "Tuples0 = ~p~n", [Tuples0]),
+
+    Tuples1 = lines(Tuples0, Indents, Comments),
+    Tuples2 = lists:flatten(Tuples1),
+    Tuples = fill_in_line_numbers(Tuples2),
     write_terms(Filename ++ ".tup", Tuples),
     Forms.
 
@@ -70,6 +78,33 @@ write_terms(Filename, List) ->
     Text = lists:map(Format, List),
     file:write_file(Filename, Text).
 
+delete_includes([FileAttrib = {attribute, 1, file, {File, 1}} | Rest]) ->
+    io:format("Deleting includes: host file is ~p~n", [File]),
+    delete_includes(File, Rest, [FileAttrib]).
+
+delete_includes(_File,
+                _NoMoreForms = [],
+                ReversedNewForms) ->
+    lists:reverse(ReversedNewForms);
+delete_includes(File,
+                [{attribute, _Line, file, {Include, _Line}} | Rest],
+                NewForms)
+    when File /= Include ->
+    io:format("Found non-host file attribute for ~p. Deleting.~n", [Include]),
+    MinusInclude = delete_include(File, Rest),
+    delete_includes(File, MinusInclude, NewForms);
+delete_includes(File, [Form | Rest], NewForms) ->
+    delete_includes(File, Rest, [Form | NewForms]).
+
+delete_include(File,
+               [{attribute, _Line, file, {File, _Line}} | Rest]) ->
+    io:format("Found another file attribute for ~p. "
+              "Dropping and looking for more includes.~n",
+              [File]),
+    Rest;
+delete_include(File, [_IncludeForm | Rest]) ->
+    io:format("Dropping include form:~n~p~n", [_IncludeForm]),
+    delete_include(File, Rest).
 
 %% walk the tree adding comments and indents scanned from the original source
 lines(Tree, Indents, Comments) ->
@@ -103,9 +138,9 @@ lines(Tree, [T = {NewLine, _, _} | Rest], Line, Indents, Comments) ->
                 [];
             Comment ->
                 ParsedComment = parse_comment(Comment, Line),
-                io:format(user, "Found comment for line ~p:~n~p"
-                                "Parsed:~n~p~n",
-                          [Line, Comment, ParsedComment]),
+                %io:format(user, "Found comment for line ~p:~n~p"
+                                %"Parsed:~n~p~n",
+                          %[Line, Comment, ParsedComment]),
                 ParsedComment
         end,
     NumIndents = maps:get(NewLine, Indents, 0),
@@ -209,9 +244,9 @@ tuple({attribute,Line,record,{Name,Defs}}) ->
      parse_symbol(Line, ','),
      parse_symbol(Line, '{'),
      record_defs(Defs),
-     parse_symbol(Line, '}'),
-     parse_symbol(Line, ')'),
-     parse_symbol(Line, '.')];
+     parse_symbol(noline, '}'),
+     parse_symbol(noline, ')'),
+     parse_symbol(noline, '.')];
 tuple({attribute,Line,asm,{function,_N,_A,_Code}}) ->
     line(Line);
 tuple({attribute,Line,_Attr,_Val}) ->		%The general attribute.
@@ -220,7 +255,7 @@ tuple({function,Line,Name,_Arity,Clauses}) ->
     [line(Line),
      separate(parse_symbol(Line, ';'),
               lists:map(fun(Clause) -> clause(Name, Clause) end, Clauses)),
-     parse_symbol(Line, '.')];
+     parse_symbol(noline, '.')];
 % TODO figure out how to reproduce these
 tuple({error,E}) ->
     {error,E};
@@ -229,22 +264,39 @@ tuple({warning,W}) ->
 tuple({eof,Line}) ->
     [line(Line), {Line, <<"eof">>, ?DARK_GREY}].
 
-sort(Tuples = [{Line, _, _} | _]) ->
-    sort(Tuples, #{}, Line).
+fill_in_line_numbers(Tuples) ->
+    fill_in_line_numbers(Tuples, [], 0).
 
-sort([], LineTuples, _) ->
-    Keys = lists:sort(maps:keys(LineTuples)),
-    lists:flatten([maps:get(K, LineTuples) || K <- Keys]);
-sort([{noline, Bin, Colour} | Rest], LineTuples, Line) ->
-    sort([{Line, Bin, Colour} | Rest], LineTuples, Line);
-sort([Tuple = {Line, _, _} | Rest], LineTuples, _) ->
-    case maps:is_key(Line, LineTuples) of
-        true ->
-            #{Line := Tuples} = LineTuples,
-            sort(Rest, LineTuples#{Line => Tuples ++ [Tuple]}, Line);
-        false ->
-            sort(Rest, LineTuples#{Line => [Tuple]}, Line)
-    end.
+fill_in_line_numbers([], FilledIn, _) ->
+    lists:reverse(FilledIn);
+fill_in_line_numbers([{noline, X, Y} | Rest], FilledIn, Line) ->
+    fill_in_line_numbers(Rest, [{Line, X, Y} | FilledIn], Line);
+fill_in_line_numbers([Tuple = {Line, _, _} | Rest], FilledIn, Line) ->
+    fill_in_line_numbers(Rest, [Tuple | FilledIn], Line);
+fill_in_line_numbers(Tuples = [{NewLine, _, _} | _], FilledIn, _PrevLine) ->
+    fill_in_line_numbers(Tuples, FilledIn, NewLine).
+
+% FIXME - I think the include and the main file have the same
+%         line numbers so they get merged
+%         e.g. if the include has a record field on line 3
+%         and the main file has an export on line 3 then they'll
+%         both look like they're on the same line
+% sort(Tuples = [{Line, _, _} | _]) ->
+%     sort(Tuples, #{}, Line).
+%
+% sort([], LineTuples, _) ->
+%     Keys = lists:sort(maps:keys(LineTuples)),
+%     lists:flatten([maps:get(K, LineTuples) || K <- Keys]);
+% sort([{noline, Bin, Colour} | Rest], LineTuples, Line) ->
+%     sort([{Line, Bin, Colour} | Rest], LineTuples, Line);
+% sort([Tuple = {Line, _, _} | Rest], LineTuples, _) ->
+%     case maps:is_key(Line, LineTuples) of
+%         true ->
+%             #{Line := Tuples} = LineTuples,
+%             sort(Rest, LineTuples#{Line => Tuples ++ [Tuple]}, Line);
+%         false ->
+%             sort(Rest, LineTuples#{Line => [Tuple]}, Line)
+%     end.
 
 farity_list(Line, FunArities) ->
     separate(lists:map(fun farity/1, [{Line, FA} || FA <- FunArities])).
