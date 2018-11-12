@@ -90,7 +90,7 @@ delete_includes(File,
                 [{attribute, _Line, file, {Include, _Line}} | Rest],
                 NewForms)
     when File /= Include ->
-    io:format("Found non-host file attribute for ~p. Deleting.~n", [Include]),
+    %io:format("Found non-host file attribute for ~p. Deleting.~n", [Include]),
     MinusInclude = delete_include(File, Rest),
     delete_includes(File, MinusInclude, NewForms);
 delete_includes(File, [Form | Rest], NewForms) ->
@@ -98,12 +98,12 @@ delete_includes(File, [Form | Rest], NewForms) ->
 
 delete_include(File,
                [{attribute, _Line, file, {File, _Line}} | Rest]) ->
-    io:format("Found another file attribute for ~p. "
-              "Dropping and looking for more includes.~n",
-              [File]),
+    %io:format("Found another file attribute for ~p. "
+    %          "Dropping and looking for more includes.~n",
+    %          [File]),
     Rest;
 delete_include(File, [_IncludeForm | Rest]) ->
-    io:format("Dropping include form:~n~p~n", [_IncludeForm]),
+    %io:format("Dropping include form:~n~p~n", [_IncludeForm]),
     delete_include(File, Rest).
 
 %% walk the tree adding comments and indents scanned from the original source
@@ -127,17 +127,17 @@ lines(Tree, [T = {Same, _, _} | Rest], Line, Indents, Comments)
     lines([T | Tree], Rest, Line, Indents, Comments);
 lines(Tree, Lines = [{NewLine, _, _} | _], Line, Indents, Comments)
         when NewLine > Line + 1 ->
-    %io:format("Skipped line ~p and went to ~p. Filling in.~n",
-              %[Line + 1, NewLine]),
+    io:format("Skipped line ~p and went to ~p. Filling in.~n",
+              [Line + 1, NewLine]),
     lines(Tree, [{Line + 1, <<"">>, ?DARK_GREY} | Lines], Line, Indents, Comments);
 lines(Tree, [T = {NewLine, _, _} | Rest], Line, Indents, Comments) ->
     %io:format("Old line: ~p, new line: ~p~n", [Line, NewLine]),
-    EndOfLine =
+    Comment =
         case maps:get(Line, Comments, undefined) of
             undefined ->
                 [];
-            Comment ->
-                ParsedComment = parse_comment(Comment, Line),
+            RawComment ->
+                ParsedComment = parse_comment(RawComment, Line),
                 %io:format(user, "Found comment for line ~p:~n~p"
                                 %"Parsed:~n~p~n",
                           %[Line, Comment, ParsedComment]),
@@ -145,11 +145,11 @@ lines(Tree, [T = {NewLine, _, _} | Rest], Line, Indents, Comments) ->
         end,
     NumIndents = maps:get(NewLine, Indents, 0),
     %io:format(user, "NumIndents = ~p~n", [NumIndents]),
-    NextLine = {Line + 1,
-                list_to_binary(string:copies(" ", NumIndents)),
-                ?TEXT_COLOUR},
+    Indent = {NewLine,
+              list_to_binary(string:copies(" ", NumIndents)),
+              ?TEXT_COLOUR},
     %io:format(user, "NextLine = ~p~n", [NextLine]),
-    lines([T, EndOfLine, NextLine | Tree],
+    lines([Comment, Indent, T | Tree],
           Rest,
           Line + 1,
           Indents,
