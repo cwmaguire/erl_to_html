@@ -956,7 +956,7 @@ parse_symbol(Line, ']') ->
 parse_symbol(Line, '.') ->
     {Line, <<".">>, ?TEXT_COLOUR};
 parse_symbol(Line, ',') ->
-    {Line, <<",">>, ?TEXT_COLOUR};
+    {Line, <<", ">>, ?TEXT_COLOUR};
 parse_symbol(Line, ':') ->
     {Line, <<":">>, ?TEXT_COLOUR};
 parse_symbol(Line, ';') ->
@@ -966,21 +966,21 @@ parse_symbol(Line, '/') ->
 parse_symbol(Line, '-') ->
     {Line, <<"-">>, ?DASH_COLOUR};
 parse_symbol(Line, '=') ->
-    {Line, <<"=">>, ?DASH_COLOUR};
+    {Line, <<" = ">>, ?DASH_COLOUR};
 parse_symbol(Line, '>') ->
-    {Line, <<">">>, ?TEXT_COLOUR};
+    {Line, <<" > ">>, ?TEXT_COLOUR};
 parse_symbol(Line, '<') ->
-    {Line, <<"<">>, ?TEXT_COLOUR};
+    {Line, <<" < ">>, ?TEXT_COLOUR};
 parse_symbol(Line, '==') ->
-    {Line, <<"==">>, ?TEXT_COLOUR};
+    {Line, <<" == ">>, ?TEXT_COLOUR};
 parse_symbol(Line, '+') ->
-    {Line, <<"+">>, ?TEXT_COLOUR};
+    {Line, <<" + ">>, ?TEXT_COLOUR};
 parse_symbol(Line, '*') ->
-    {Line, <<"*">>, ?STAR_COLOUR};
+    {Line, <<" * ">>, ?STAR_COLOUR};
 parse_symbol(Line, '->') ->
-    {Line, <<"->">>, ?CLAUSE_ARROW_COLOUR};
+    {Line, <<" -> ">>, ?CLAUSE_ARROW_COLOUR};
 parse_symbol(Line, '<-') ->
-    {Line, <<"<-">>, ?GENERATOR_ARROW_COLOUR};
+    {Line, <<" <- ">>, ?GENERATOR_ARROW_COLOUR};
 parse_symbol(Line, '"') ->
     {Line, <<"\"">>, ?DOUBLE_QUOTE_COLOUR};
 parse_symbol(Line, '%') ->
@@ -1002,9 +1002,9 @@ parse_symbol(Line, '#') ->
 parse_symbol(Line, '|') ->
     {Line, <<"|">>, ?CONS_COLOUR};
 parse_symbol(Line, '=>') ->
-    {Line, <<"=>">>, ?MAP_FIELD_ASSOC_COLOUR};
+    {Line, <<" => ">>, ?MAP_FIELD_ASSOC_COLOUR};
 parse_symbol(Line, ':=') ->
-    {Line, <<":=">>, ?MAP_FIELD_EXTRACT_COLOUR};
+    {Line, <<" := ">>, ?MAP_FIELD_EXTRACT_COLOUR};
 parse_symbol(Line, Line = {line, _}) ->
     {Line, i2b(Line), ?LINE_COLOUR};
 parse_symbol(Line, eof) ->
