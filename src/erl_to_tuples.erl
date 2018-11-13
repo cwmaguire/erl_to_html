@@ -127,8 +127,8 @@ lines(Tree, [T = {Same, _, _} | Rest], Line, Indents, Comments)
     lines([T | Tree], Rest, Line, Indents, Comments);
 lines(Tree, Lines = [{NewLine, _, _} | _], Line, Indents, Comments)
         when NewLine > Line + 1 ->
-    io:format("Skipped line ~p and went to ~p. Filling in.~n",
-              [Line + 1, NewLine]),
+    %io:format("Skipped line ~p and went to ~p. Filling in.~n",
+    %          [Line + 1, NewLine]),
     lines(Tree, [{Line + 1, <<"">>, ?DARK_GREY} | Lines], Line, Indents, Comments);
 lines(Tree, [T = {NewLine, _, _} | Rest], Line, Indents, Comments) ->
     %io:format("Old line: ~p, new line: ~p~n", [Line, NewLine]),
