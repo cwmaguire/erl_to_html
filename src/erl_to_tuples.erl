@@ -265,38 +265,26 @@ tuple({eof,Line}) ->
     [line(Line), {Line, <<"eof">>, ?DARK_GREY}].
 
 fill_in_line_numbers(Tuples) ->
-    fill_in_line_numbers(Tuples, [], 0).
+    LineSpace = max_digits(Tuples) + 1,
+    %io:format(user, "LineSpace = ~p~n", [LineSpace]),
+    fill_in_line_numbers(Tuples, [], 0, LineSpace).
 
-fill_in_line_numbers([], FilledIn, _) ->
+fill_in_line_numbers([], FilledIn, _, _) ->
     lists:reverse(FilledIn);
-fill_in_line_numbers([{noline, X, Y} | Rest], FilledIn, Line) ->
-    fill_in_line_numbers(Rest, [{Line, X, Y} | FilledIn], Line);
-fill_in_line_numbers([Tuple = {Line, _, _} | Rest], FilledIn, Line) ->
-    fill_in_line_numbers(Rest, [Tuple | FilledIn], Line);
-fill_in_line_numbers(Tuples = [{NewLine, _, _} | _], FilledIn, _PrevLine) ->
-    fill_in_line_numbers(Tuples, FilledIn, NewLine).
+fill_in_line_numbers([{noline, X, Y} | Rest], FilledIn, Line, LineSpace) ->
+    fill_in_line_numbers(Rest, [{Line, X, Y} | FilledIn], Line, LineSpace);
+fill_in_line_numbers([Tuple = {Line, _, _} | Rest], FilledIn, Line, LineSpace) ->
+    fill_in_line_numbers(Rest, [Tuple | FilledIn], Line, LineSpace);
+fill_in_line_numbers([Tuple = {NewLine, _, _} | Tuples], FilledIn, _PrevLine, LineSpace) ->
+    FormatString = "~" ++ integer_to_list(LineSpace) ++ ".. b ",
+    LineNumber = list_to_binary(io_lib:format(FormatString, [NewLine])),
+    LineTuple = {NewLine, LineNumber, ?LINE_COLOUR},
+    fill_in_line_numbers(Tuples, [Tuple, LineTuple | FilledIn], NewLine, LineSpace).
 
-% FIXME - I think the include and the main file have the same
-%         line numbers so they get merged
-%         e.g. if the include has a record field on line 3
-%         and the main file has an export on line 3 then they'll
-%         both look like they're on the same line
-% sort(Tuples = [{Line, _, _} | _]) ->
-%     sort(Tuples, #{}, Line).
-%
-% sort([], LineTuples, _) ->
-%     Keys = lists:sort(maps:keys(LineTuples)),
-%     lists:flatten([maps:get(K, LineTuples) || K <- Keys]);
-% sort([{noline, Bin, Colour} | Rest], LineTuples, Line) ->
-%     sort([{Line, Bin, Colour} | Rest], LineTuples, Line);
-% sort([Tuple = {Line, _, _} | Rest], LineTuples, _) ->
-%     case maps:is_key(Line, LineTuples) of
-%         true ->
-%             #{Line := Tuples} = LineTuples,
-%             sort(Rest, LineTuples#{Line => Tuples ++ [Tuple]}, Line);
-%         false ->
-%             sort(Rest, LineTuples#{Line => [Tuple]}, Line)
-%     end.
+max_digits(Tuples) ->
+    LineNumberLengths = [length(i2l(L)) || {L, _, _} <- Tuples, is_number(L)],
+    %io:format(user, "LineNumbers = ~p~n", [LineNumbers]),
+    lists:max(LineNumberLengths).
 
 farity_list(Line, FunArities) ->
     separate(lists:map(fun farity/1, [{Line, FA} || FA <- FunArities])).
@@ -933,7 +921,10 @@ arity(Line, Arity) ->
     {Line, i2b(Arity), ?ARITY_COLOUR}.
 
 i2b(I) ->
-    list_to_binary(integer_to_list(I)).
+    list_to_binary(i2l(I)).
+
+i2l(I) ->
+    integer_to_list(I).
 
 a2b(A) ->
     list_to_binary(atom_to_list(A)).
