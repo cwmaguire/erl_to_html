@@ -16,6 +16,8 @@ add_line(_EmptyLine, Lines, _Data = "\n") ->
 add_line(Line, Lines, Data) ->
     {Taken, Rest} = string:take(string:replace(Data, "\t", "    "), " "),
     case {Taken, Rest} of
+        {_, [$% | _]} ->
+            Lines;
         {_, []} ->
             Lines;
         {"", _} ->
