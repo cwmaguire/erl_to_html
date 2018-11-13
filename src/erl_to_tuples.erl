@@ -215,7 +215,7 @@ tuple({attribute,Line,export,Es0}) ->
      farity_list(Line, Es0),
      parse_symbol(Line, ']'),
      parse_symbol(Line, '.')];
-     tuple({attribute,Line,import,{Mod,Is0}}) ->
+tuple({attribute,Line,import,{Mod,Is0}}) ->
     [%line(Line),
      parse_symbol(Line, '-'),
      parse_symbol(Line, 'import'),
@@ -622,9 +622,9 @@ expr(UnknownExpr) ->
 
 
 bit_type({Line, Atom}) when is_atom(Atom) ->
-    parse_symbol(Line, Atom);
+    {Line, a2b(Atom), ?BINARY_CLOSE_COLOUR};
 bit_type({Line, {Atom, Integer}}) when is_atom(Atom), is_integer(Integer) ->
-    [atom(Line, Atom),
+    [{Line, a2b(Atom), ?BINARY_TYPE_COLOUR},
      parse_symbol(Line, ':'),
      integer(Line, Integer)].
 
