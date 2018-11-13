@@ -1043,13 +1043,13 @@ line(_Line) ->
     [].
 
 separate(List) when is_list(List) ->
-    separate(parse_symbol(noline, ','), List).
+    separate(parse_symbol(noline, ', '), List).
 
 separate(Separator, List) ->
     lists:join(Separator, List).
 
 map_separate(Fun, List) ->
-    map_separate(parse_symbol(noline, ','), Fun, List).
+    map_separate(parse_symbol(noline, ', '), Fun, List).
 
 map_separate(Separator, Fun, List) ->
     separate(Separator, lists:map(Fun, List)).
