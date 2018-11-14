@@ -112,8 +112,9 @@ delete_include(File, [_IncludeForm | Rest]) ->
 lines(Tree, Indents, Comments) ->
     %io:format("Lines.~n"),
     {Tree2, _} = lines([], Tree, 0, Indents, Comments),
-    StartLine = [{_Line = 0, _LineNumber = <<"0">>, ?LINE_COLOUR},
-                 {_Line = 0, list_to_binary(string:copies(" ", maps:get(1, Indents, 0))), ?TEXT_COLOUR}],
+    StartLine = {_Line = 0,
+                 list_to_binary(string:copies(" ", maps:get(1, Indents, 0))),
+                 ?TEXT_COLOUR},
     [StartLine, Tree2].
 
 lines(Lines, [], LineNo, _Indents, _Comments)  ->
@@ -269,7 +270,7 @@ tuple({eof,Line}) ->
 fill_in_line_numbers(Tuples) ->
     LineSpace = max_digits(Tuples) + 1,
     %io:format(user, "LineSpace = ~p~n", [LineSpace]),
-    fill_in_line_numbers(Tuples, [], 0, LineSpace).
+    fill_in_line_numbers(Tuples, [], -1, LineSpace).
 
 fill_in_line_numbers([], FilledIn, _, _) ->
     lists:reverse(FilledIn);
