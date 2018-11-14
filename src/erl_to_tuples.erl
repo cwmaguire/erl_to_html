@@ -60,7 +60,9 @@ parse_transform(Forms, Options) ->
     %io:format(user, "Tuples0 = ~p~n", [Tuples0]),
 
     Tuples1 = lines(Tuples0, Indents, Comments),
+    %io:format("Tuples~n:~p~n", [Tuples1]),
     Tuples2 = lists:flatten(Tuples1),
+    %[io:format("Line ~p~n", [L]) || {L, _, _} <- Tuples2],
     Tuples = fill_in_line_numbers(Tuples2),
     write_terms(Filename ++ ".tup", Tuples),
     Forms.
@@ -114,30 +116,30 @@ lines(Tree, Indents, Comments) ->
                  {_Line = 0, list_to_binary(string:copies(" ", maps:get(1, Indents, 0))), ?TEXT_COLOUR}],
     [StartLine, Tree2].
 
-lines(Tree, [], Line, _Indents, _Comments)  ->
-    {lists:reverse(Tree), Line};
-lines(Tree, [Head | Rest], Line, Indents, Comments) when is_list(Head) ->
+lines(Lines, [], LineNo, _Indents, _Comments)  ->
+    {lists:reverse(Lines), LineNo};
+lines(Lines, [Head | Rest], LineNo, Indents, Comments) when is_list(Head) ->
     %io:format("Lines. Subtree. Line: ~p~n", [Line]),
-    {SubTree, CurrLine} = lines([], Head, Line, Indents, Comments),
-    lines([SubTree | Tree], Rest, CurrLine, Indents, Comments);
-lines(Tree, [T = {Same, _, _} | Rest], Line, Indents, Comments)
-        when Same == noline; Same =< Line ->
+    {SubTree, CurrLineNo} = lines([], Head, LineNo, Indents, Comments),
+    lines([SubTree | Lines], Rest, CurrLineNo, Indents, Comments);
+lines(Lines, [T = {Same, _, _} | Rest], LineNo, Indents, Comments)
+        when Same == noline; Same =< LineNo ->
     % same line
     %io:format("Lines. Same line. Line: ~p~n", [Line]),
-    lines([T | Tree], Rest, Line, Indents, Comments);
-lines(Tree, Lines = [{NewLine, _, _} | _], Line, Indents, Comments)
-        when NewLine > Line + 1 ->
+    lines([T | Lines], Rest, LineNo, Indents, Comments);
+lines(Lines, Tree = [{NewLine, _, _} | _], LineNo, Indents, Comments)
+        when NewLine > LineNo + 1 ->
     %io:format("Skipped line ~p and went to ~p. Filling in.~n",
     %          [Line + 1, NewLine]),
-    lines(Tree, [{Line + 1, <<"">>, ?DARK_GREY} | Lines], Line, Indents, Comments);
-lines(Tree, [T = {NewLine, _, _} | Rest], Line, Indents, Comments) ->
+    lines(Lines, [{LineNo + 1, <<"">>, ?DARK_GREY} | Tree], LineNo, Indents, Comments);
+lines(Lines, [T = {NewLine, _, _} | Rest], LineNo, Indents, Comments) ->
     %io:format("Old line: ~p, new line: ~p~n", [Line, NewLine]),
     Comment =
-        case maps:get(Line, Comments, undefined) of
+        case maps:get(LineNo, Comments, undefined) of
             undefined ->
                 [];
             RawComment ->
-                ParsedComment = parse_comment(RawComment, Line),
+                ParsedComment = parse_comment(RawComment, LineNo),
                 %io:format(user, "Found comment for line ~p:~n~p"
                                 %"Parsed:~n~p~n",
                           %[Line, Comment, ParsedComment]),
@@ -149,14 +151,14 @@ lines(Tree, [T = {NewLine, _, _} | Rest], Line, Indents, Comments) ->
               list_to_binary(string:copies(" ", NumIndents)),
               ?TEXT_COLOUR},
     %io:format(user, "NextLine = ~p~n", [NextLine]),
-    lines([T, Indent, Comment | Tree],
+    lines([T, Indent, Comment | Lines],
           Rest,
-          Line + 1,
+          LineNo + 1,
           Indents,
           Comments);
-lines(Tree, [Head | Rest], Line, Indents, Comments) ->
+lines(Lines, [Head | Rest], LineNo, Indents, Comments) ->
     %io:format("Lines. No Match.~nHead: ~p,~nLine: ~p~n", [Head, Line]),
-    lines([Head | Tree], Rest, Line, Indents, Comments).
+    lines([Head | Lines], Rest, LineNo, Indents, Comments).
 
 parse_comment(Comment, Line) ->
     CommentTuples = parse_comment(_Text = "", _Parsed = [], Comment, Line),
@@ -273,11 +275,23 @@ fill_in_line_numbers([], FilledIn, _, _) ->
     lists:reverse(FilledIn);
 fill_in_line_numbers([{noline, X, Y} | Rest], FilledIn, Line, LineSpace) ->
     fill_in_line_numbers(Rest, [{Line, X, Y} | FilledIn], Line, LineSpace);
+fill_in_line_numbers([{Less, X, Y} | Rest],
+                     FilledIn,
+                     Line,
+                     LineSpace) when Less < Line ->
+    fill_in_line_numbers(Rest, [{Line, X, Y} | FilledIn], Line, LineSpace);
 fill_in_line_numbers([Tuple = {Line, _, _} | Rest], FilledIn, Line, LineSpace) ->
     fill_in_line_numbers(Rest, [Tuple | FilledIn], Line, LineSpace);
-fill_in_line_numbers([Tuple = {NewLine, _, _} | Tuples], FilledIn, _PrevLine, LineSpace) ->
+fill_in_line_numbers([Tuple = {NewLine, _, _} | Tuples],
+                     FilledIn,
+                     _PrevLine,
+                     LineSpace) ->
     FormatString = "~" ++ integer_to_list(LineSpace) ++ ".. b ",
     LineNumber = list_to_binary(io_lib:format(FormatString, [NewLine])),
+    % io:format("Filling in line number ~p for line " ++ FormatString ++ "~n" ++
+    %           "Tuple is: ~p~n" ++
+    %           "Previous line is: ~p~n~n",
+    %           [NewLine, NewLine, Tuple, _PrevLine]),
     LineTuple = {NewLine, LineNumber, ?LINE_COLOUR},
     fill_in_line_numbers(Tuples, [Tuple, LineTuple | FilledIn], NewLine, LineSpace).
 
@@ -622,7 +636,7 @@ expr(UnknownExpr) ->
 
 
 bit_type({Line, Atom}) when is_atom(Atom) ->
-    {Line, a2b(Atom), ?BINARY_CLOSE_COLOUR};
+    {Line, a2b(Atom), ?BINARY_TYPE_COLOUR};
 bit_type({Line, {Atom, Integer}}) when is_atom(Atom), is_integer(Integer) ->
     [{Line, a2b(Atom), ?BINARY_TYPE_COLOUR},
      parse_symbol(Line, ':'),
