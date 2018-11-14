@@ -880,11 +880,9 @@ type_list([]) -> [].
 %% which are simply expressions
 %% A generator is a target and a source
 lc_bc_qual({generate,Line,Target,Source}) ->
-    [parse_symbol(Line, '['),
-     expr(Target),
+    [expr(Target),
      parse_symbol(Line, '<-'),
-     expr(Source),
-     parse_symbol(Line, ']')];
+     expr(Source)];
 lc_bc_qual({b_generate,Line,Target,Source}) ->
     [expr(Target),
      parse_symbol(Line, '<='),
