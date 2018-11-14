@@ -417,7 +417,8 @@ expr({'case',Line,Expression,Clauses}) ->
      parse_symbol(Line, 'case'),
      expr(Expression),
      parse_symbol(Line, 'of'),
-     map_separate(';', fun case_clause/1, Clauses),
+     map_separate(parse_symbol(Line, ';'),
+                  fun case_clause/1, Clauses),
      parse_symbol(Line, 'end')];
 expr({'receive',Line,Clauses}) ->
     [%line(Line),
@@ -438,7 +439,8 @@ expr({'try',Line,Expressions,_WhatIsThis,CatchClauses,AfterExpressions}) ->
      parse_symbol(Line, 'try'),
      map_separate(fun expr/1, Expressions),
      parse_symbol(Line, 'catch'),
-     map_separate(';', fun catch_clause/1, CatchClauses),
+     map_separate(parse_symbol(Line, ';'),
+                  fun catch_clause/1, CatchClauses),
      parse_symbol(Line, 'after'),
      map_separate(fun expr/1, AfterExpressions),
      parse_symbol(Line, 'end')];
