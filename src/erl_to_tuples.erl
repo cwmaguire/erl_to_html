@@ -450,11 +450,14 @@ expr({'fun',Line,Body}) ->
              map_separate(fun(Clause) -> clause('', Clause) end, Clauses)];
         {function,Fun,Arity} ->
             [%line(Line),
+             parse_symbol(Line, 'fun'),
+             {Line, <<" ">>, {0, 0, 0}},
              function(Line, Fun),
              parse_symbol(Line, '/'),
              arity(Line, Arity)];
         {function,M,F,A} when is_atom(M), is_atom(F), is_integer(A) ->
             [%line(Line),
+             parse_symbol(Line, 'fun'),
              module(Line, M),
              parse_symbol(Line, ':'),
              function(Line, F),
@@ -466,6 +469,7 @@ expr({'fun',Line,Body}) ->
             F = expr(F0),
             A = expr(A0),
             [%line(Line),
+             parse_symbol(Line, 'fun'),
              module(Line, M),
              parse_symbol(Line, ':'),
              function(Line, F),
