@@ -15,7 +15,7 @@
 -module(erl_to_tuples).
 
 -include("colour_tuples.hrl").
--define(SPACE, $ ).
+-define(SPACE(Line), {Line, <<" ">>, {0, 0, 0}}).
 
 -export([get_tuples/1]).
 -export([get_tuples/2]).
@@ -40,7 +40,7 @@ get_tuples(Filename, IncludeDirs) ->
     Tuples.
 
 parse_transform(Forms, Options) ->
-    %io:format(user, "Forms = ~p~n", [Forms]),
+    io:format(user, "Forms = ~p~n", [Forms]),
     Filename = filename(Options),
     io:format(user, "Scanning ~p for indentation~n", [Filename]),
     Indents = get_indents:indents(Filename),
@@ -414,18 +414,25 @@ expr({'if',Line,Clauses}) ->
      map_separate(fun clause/1, Clauses),
      parse_symbol(Line, 'end')];
 expr({'case',Line,Expression,Clauses}) ->
+    ClauseList = map_separate(parse_symbol(Line, ';'),
+                  fun case_clause/1, Clauses),
+    LastLine = last_line(ClauseList),
     [%line(Line),
      parse_symbol(Line, 'case'),
+     ?SPACE(Line),
      expr(Expression),
      parse_symbol(Line, 'of'),
-     map_separate(parse_symbol(Line, ';'),
-                  fun case_clause/1, Clauses),
-     parse_symbol(Line, 'end')];
+     ?SPACE(Line),
+     ClauseList,
+     parse_symbol(LastLine + 1, 'end')];
 expr({'receive',Line,Clauses}) ->
+    ClauseList = map_separate(fun clause/1, Clauses),
+    LastLine = last_line(ClauseList),
     [%line(Line),
      parse_symbol(Line, 'receive'),
-     map_separate(fun clause/1, Clauses),
-     parse_symbol(Line, 'end')];
+     ?SPACE(Line),
+     ClauseList,
+     parse_symbol(LastLine + 1, 'end')];
 expr({'receive',Line,Clauses,AfterWait,AfterExpressions}) ->
     [%line(Line),
      parse_symbol(Line, 'receive'),
@@ -438,6 +445,7 @@ expr({'receive',Line,Clauses,AfterWait,AfterExpressions}) ->
 expr({'try',Line,Expressions,_WhatIsThis,CatchClauses,AfterExpressions}) ->
     [%line(Line),
      parse_symbol(Line, 'try'),
+     ?SPACE(Line),
      map_separate(fun expr/1, Expressions),
      parse_symbol(Line, 'catch'),
      map_separate(parse_symbol(Line, ';'),
@@ -454,7 +462,7 @@ expr({'fun',Line,Body}) ->
         {function,Fun,Arity} ->
             [%line(Line),
              parse_symbol(Line, 'fun'),
-             {Line, <<" ">>, {0, 0, 0}},
+             ?SPACE(Line),
              function(Line, Fun),
              parse_symbol(Line, '/'),
              arity(Line, Arity)];
@@ -492,55 +500,48 @@ expr({call,Line,Fun,Args}) ->
      parse_symbol(Line, ')')];
 expr({'catch',Line,Expression}) ->
     %% No new variables added.
-    [%line(Line),
-     parse_symbol(Line, 'catch'),
+    [parse_symbol(Line, 'catch'),
      expr(Expression)];
 expr({match,Line,Expr1,Expr2}) ->
-    [%line(Line),
-     expr(Expr1),
+    [expr(Expr1),
      parse_symbol(Line, '='),
      expr(Expr2)];
 expr({bin,Line,BinElements}) ->
-    [%line(Line),
-     parse_symbol(Line, '<<'),
+    [parse_symbol(Line, '<<'),
      map_separate(fun bin/1, BinElements),
      parse_symbol(Line, '>>')];
 expr({op,Line,Op,A}) ->
-    [%line(Line),
-     %{Line, a2b(Op), ?TEXT_COLOUR},
+    [%{Line, a2b(Op), ?TEXT_COLOUR},
      parse_symbol(Line, Op),
      expr(A)];
 expr({op,Line,'==',L,R}) ->
-    [%line(Line),
-     expr(L),
+    [expr(L),
      parse_symbol(Line, '=='),
      expr(R)];
+expr({op,Line,'++',L,R}) ->
+    [expr(L),
+     parse_symbol(Line, '++'),
+     expr(R)];
 expr({op,Line,Op,L,R}) ->
-    [%line(Line),
-     expr(L),
+    io:format(user, "Op = ~p~n", [Op]),
+    [expr(L),
      parse_symbol(Line, Op),
      expr(R)];
 expr({remote, Line, {atom, _MLine, Module}, {atom, _FLine, Function}}) ->
-    [%line(Line),
-     module(Line, Module),
+    [module(Line, Module),
      parse_symbol(Line, ':'),
      function(Line, Function)];
 expr({nil, Line}) ->
-    [%line(Line),
-     parse_symbol(Line, '['),
+    [parse_symbol(Line, '['),
      parse_symbol(Line, ']')];
 expr({var,Line,V}) ->
-    [%line(Line),
-     var(Line, V)];
+    [var(Line, V)];
 expr({integer,Line,I}) ->
-    [%line(Line),
-     integer(Line, I)];
+    [integer(Line, I)];
 expr({char,Line,C}) ->
-    [%line(Line),
-     {Line, list_to_binary([$$, C]), ?CHAR_COLOUR}];
+    [{Line, list_to_binary([$$, C]), ?CHAR_COLOUR}];
 expr({float,Line,F}) ->
-    [%line(Line),
-     {Line, io_lib:format("~w", [F]), ?FLOAT_COLOUR}];
+    [{Line, io_lib:format("~w", [F]), ?FLOAT_COLOUR}];
 expr({atom,Line,A}) when A == ':';
                          A == '<<';
                          A == '>>';
@@ -560,41 +561,34 @@ expr({atom,Line,A}) when A == ':';
                          A == '(';
                          A == '"' ->
     %io:format(user, "{atom, Line, ~p}", [A]),
-    [%line(Line),
-     {Line, <<$', (a2b(A))/binary, $'>>, ?ATOM_COLOUR}];
+    [{Line, <<$', (a2b(A))/binary, $'>>, ?ATOM_COLOUR}];
 expr({atom,Line,A}) ->
-    [%line(Line),
-     {Line, a2b(A), ?ATOM_COLOUR}];
+    [{Line, a2b(A), ?ATOM_COLOUR}];
 expr({string,Line,S}) ->
-    [%line(Line),
-     parse_symbol(Line, '"'),
+    [parse_symbol(Line, '"'),
      %{no_parse, <<"--><!-- before parse_control_sequences(S) --><!--\n">>},
      parse_control_sequences(Line, S),
      %{no_parse, <<"--><!-- after parse_control_sequences(S) --><!--\n">>},
      parse_symbol(Line, '"')];
 expr({tuple,Line,Exprs}) ->
-    [%line(Line),
-     [parse_symbol(Line, '{'),
+    [[parse_symbol(Line, '{'),
       map_separate(fun expr/1, Exprs),
       parse_symbol(Line, '}')]];
 %% There's a special case for all cons's after the first: {tail, _}
 %% so this is a list of one item.
 expr({cons,Line,Head,{nil, _}}) ->
-    [%line(Line),
-     parse_symbol(Line, '['),
+    [parse_symbol(Line, '['),
      expr(Head),
      parse_symbol(Line, ']')];
 expr({cons,Line,Head,{var, _Line2, '_'}}) ->
-    [%line(Line),
-     parse_symbol(Line, '['),
+    [parse_symbol(Line, '['),
      expr(Head),
      parse_symbol(Line, '|'),
      parse_symbol(Line, '_'),
      parse_symbol(Line, ']')];
 expr(_Cons = {cons,Line,Head,Tail}) ->
     %io:format(user, "Cons -> Tail = ~p~n", [Cons]),
-    [%line(Line),
-     parse_symbol(Line, '['),
+    [parse_symbol(Line, '['),
      [expr(Head), parse_symbol(Line, ',') | expr({tail, Tail})],
       parse_symbol(Line, ']')];
 expr(_Tail = {tail, {cons, Line, Head, {nil, _}}}) ->
@@ -603,32 +597,27 @@ expr(_Tail = {tail, {cons, Line, Head, {nil, _}}}) ->
      expr(Head)];
 expr(_Tail_ = {tail, {cons, Line, Head, Tail}}) ->
     %io:format(user, "Tail 2 = ~p~n", [Tail_]),
-    [%line(Line),
-     [expr(Head), parse_symbol(Line, ',') | expr({tail, Tail})]];
+    [[expr(Head), parse_symbol(Line, ',') | expr({tail, Tail})]];
 expr({tail, {var, Line, Expr}}) ->
-    [%line(Line),
-     var(Line, Expr)];
+    [var(Line, Expr)];
 expr({tail, Call = {call, Line, _Fun, _Args}}) ->
     [line(Line),
      expr(Call)];
 expr({tail, Unknown}) ->
     io:format(user, "Unknown tail ~p~n", [Unknown]);
 expr({record,Line,Name,ExprFields}) ->
-    [%line(Line),
-     [{Line, <<"#">>, ?RECORD_HASH_COLOUR},
+    [[{Line, <<"#">>, ?RECORD_HASH_COLOUR},
       {Line, a2b(Name), ?RECORD_NAME_COLOUR},
       parse_symbol(Line, '{'),
       map_separate(fun expr_field/1, ExprFields),
       parse_symbol(Line, '}')]];
 expr({record_index,Line,Name,Field}) ->
-    [%line(Line),
-     [{Line, '#', ?RECORD_HASH_COLOUR},
+    [[{Line, '#', ?RECORD_HASH_COLOUR},
       {Line, a2b(Name), ?RECORD_NAME_COLOUR},
       parse_symbol(Line, '.'),
       expr(Field)]];
 expr({record_field,Line,Expression,RecName,Field}) ->
-    [%line(Line),
-     [expr(Expression),
+    [[expr(Expression),
       {Line, '#', ?RECORD_HASH_COLOUR},
       {Line, a2b(RecName), ?RECORD_NAME_COLOUR},
       parse_symbol(Line, '.'),
@@ -983,6 +972,8 @@ parse_symbol(Line, '<') ->
     {Line, <<" < ">>, ?TEXT_COLOUR};
 parse_symbol(Line, '==') ->
     {Line, <<" == ">>, ?TEXT_COLOUR};
+parse_symbol(Line, '++') ->
+    {Line, <<" ++ ">>, ?DOUBLE_PLUS_COLOUR};
 parse_symbol(Line, '+') ->
     {Line, <<" + ">>, ?TEXT_COLOUR};
 parse_symbol(Line, '*') ->
@@ -1043,6 +1034,8 @@ parse_symbol(Line, 'end') ->
     {Line, <<"end">>, ?END_COLOUR};
 parse_symbol(Line, 'case') ->
     {Line, <<"case">>, ?CASE_COLOUR};
+parse_symbol(Line, 'of') ->
+    {Line, <<"of">>, ?CASE_COLOUR};
 
 parse_symbol(Line, Atom) ->
     io:format("No colour specified for atom '~p' on line ~p~n",
@@ -1063,3 +1056,9 @@ map_separate(Fun, List) ->
 
 map_separate(Separator, Fun, List) ->
     separate(Separator, lists:map(Fun, List)).
+
+last_line({Line, _, _}) ->
+    Line;
+last_line(List) when is_list(List) ->
+    [Last | _] = lists:reverse(List),
+    last_line(Last).
