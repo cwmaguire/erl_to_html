@@ -16,6 +16,7 @@
 
 -include("colour_tuples.hrl").
 -define(SPACE(Line), {Line, <<" ">>, {0, 0, 0}}).
+-define(NOTHING(Line), {Line, <<"">>, {0, 0, 0}}).
 
 -export([get_tuples/1]).
 -export([get_tuples/2]).
@@ -193,8 +194,7 @@ tuples(Forms) when is_list(Forms) ->
 
 %% First the various attributes.
 tuple({attribute,Line,module,Mod}) ->
-    [%line(Line),
-     parse_symbol(Line, '-'),
+    [parse_symbol(Line, '-'),
      parse_symbol(Line, module),
      parse_symbol(Line, '('),
      module(Line, Mod),
@@ -202,8 +202,7 @@ tuple({attribute,Line,module,Mod}) ->
      parse_symbol(Line, '.')];
 tuple({attribute,_AttributeLine,file,{File,_FileLine}}) ->	%This is valid anywhere.
     %% Manually set this to 0 to come before any source lines
-    [%line(0),
-     parse_symbol(0, '%'),
+    [parse_symbol(0, '%'),
      parse_symbol(0, '-'),
      parse_symbol(0, 'file'),
      parse_symbol(0, '('),
@@ -211,16 +210,14 @@ tuple({attribute,_AttributeLine,file,{File,_FileLine}}) ->	%This is valid anywhe
      parse_symbol(0, ')'),
      parse_symbol(0, '.')];
 tuple({attribute,Line,export,Es0}) ->
-    [%line(Line),
-     parse_symbol(Line, '-'),
+    [parse_symbol(Line, '-'),
      parse_symbol(Line, export),
      parse_symbol(Line, '['),
      farity_list(Line, Es0),
      parse_symbol(Line, ']'),
      parse_symbol(Line, '.')];
 tuple({attribute,Line,import,{Mod,Is0}}) ->
-    [%line(Line),
-     parse_symbol(Line, '-'),
+    [parse_symbol(Line, '-'),
      parse_symbol(Line, 'import'),
      parse_symbol(Line, ','),
      module(Line, Mod),
@@ -231,16 +228,14 @@ tuple({attribute,Line,import,{Mod,Is0}}) ->
      parse_symbol(Line, ')'),
      parse_symbol(Line, '.')];
 tuple({attribute,Line,compile,C}) ->
-    [%line(Line),
-     parse_symbol(Line, '-'),
+    [parse_symbol(Line, '-'),
      parse_symbol(Line, 'compile'),
      parse_symbol(Line, '('),
      parse_symbol(Line, C),
      parse_symbol(Line, ')'),
      parse_symbol(Line, '.')];
 tuple({attribute,Line,record,{Name,Defs}}) ->
-    [%line(Line),
-     parse_symbol(Line, '-'),
+    [parse_symbol(Line, '-'),
      parse_symbol(Line, 'record'),
      parse_symbol(Line, '('),
      atom(Line, Name),
@@ -251,12 +246,11 @@ tuple({attribute,Line,record,{Name,Defs}}) ->
      parse_symbol(noline, ')'),
      parse_symbol(noline, '.')];
 tuple({attribute,Line,asm,{function,_N,_A,_Code}}) ->
-    line(Line);
+    ?NOTHING(Line);
 tuple({attribute,Line,_Attr,_Val}) ->		%The general attribute.
-    line(Line);
+    ?NOTHING(Line);
 tuple({function,Line,Name,_Arity,Clauses}) ->
-    [line(Line),
-     separate(parse_symbol(Line, ';'),
+    [separate(parse_symbol(Line, ';'),
               lists:map(fun(Clause) -> clause(Name, Clause) end, Clauses)),
      parse_symbol(noline, '.')];
 % TODO figure out how to reproduce these
@@ -265,7 +259,7 @@ tuple({error,E}) ->
 tuple({warning,W}) ->
     {warning,W};
 tuple({eof,Line}) ->
-    [line(Line), {Line, <<"eof">>, ?DARK_GREY}].
+    [{Line, <<"eof">>, ?DARK_GREY}].
 
 fill_in_line_numbers(Tuples) ->
     LineSpace = max_digits(Tuples) + 1,
@@ -330,18 +324,15 @@ record_def({typed_record_field, RecordDef, Type}) ->
     [record_def(RecordDef),
      type(Type)];
 record_def({record_field,Line,{atom,_La,A},Val}) ->
-    [%line(Line),
-     {Line, a2b(A), ?TEXT_COLOUR},
+    [{Line, a2b(A), ?TEXT_COLOUR},
      parse_symbol(Line, '='),
      expr(Val)];
 record_def({record_field,Line,{atom,_La,A}}) ->
-    [%line(Line),
-     {Line, a2b(A), ?TEXT_COLOUR}].
+    [{Line, a2b(A), ?TEXT_COLOUR}].
 
 catch_clause({clause, Line, Exception, GuardGroups, Body}) ->
     [{tuple, _Line, [Class, ExceptionPattern, _Wild]}] = Exception,
-    [%line(Line),
-     expr(Class),
+    [expr(Class),
      parse_symbol(Line, ':'),
      expr(ExceptionPattern),
      separate(parse_symbol(Line, ';'),
@@ -354,8 +345,7 @@ clause({clause, Line, Head, GuardGroups, Body}) ->
     clause('', {clause, Line, Head, GuardGroups, Body}).
 
 clause(Name, {clause,Line,Head,GuardGroups,Body}) ->
-    [%line(Line),
-     function(Line, Name),
+    [function(Line, Name),
      head(Line, Head),
      separate(parse_symbol(Line, ';'),
               lists:map(fun guard_group/1, GuardGroups)),
@@ -364,8 +354,7 @@ clause(Name, {clause,Line,Head,GuardGroups,Body}) ->
               lists:map(fun expr/1, Body))].
 
 case_clause({clause, Line, [Head], GuardGroups, Body}) ->
-    [%line(Line),
-     expr(Head),
+    [expr(Head),
      case GuardGroups of
          [] ->
              [];
@@ -389,36 +378,33 @@ head(Line, Expressions) ->
 %%  N.B. Only valid patterns are included here.
 expr({lc,Line,Result,Quals}) ->
     E1 = expr(Result),
-    [%line(Line),
-     parse_symbol(Line, '['),
+    [parse_symbol(Line, '['),
      E1,
      parse_symbol(Line, '||'),
      map_separate(fun lc_bc_qual/1, Quals),
      parse_symbol(Line, ']')];
 expr({bc,Line,E0,Quals}) ->
     E1 = expr(E0),
-    [%line(Line),
-     parse_symbol(Line, '<<'),
+    [parse_symbol(Line, '<<'),
      E1,
      parse_symbol(Line, '||'),
      map_separate(fun lc_bc_qual/1, Quals),
      parse_symbol(Line, '>>')];
 expr({block,Line,Expressions}) ->
-    [%line(Line),
-     parse_symbol(Line, 'begin'),
+    [parse_symbol(Line, 'begin'),
      map_separate(fun expr/1, Expressions),
      parse_symbol(Line, 'end')];
 expr({'if',Line,Clauses}) ->
-    [%line(Line),
-     parse_symbol(Line, 'if'),
+    [parse_symbol(Line, 'if'),
      map_separate(fun clause/1, Clauses),
      parse_symbol(Line, 'end')];
 expr({'case',Line,Expression,Clauses}) ->
     ClauseList = map_separate(parse_symbol(Line, ';'),
                   fun case_clause/1, Clauses),
     LastLine = last_line(ClauseList),
-    [%line(Line),
-     parse_symbol(Line, 'case'),
+    io:format(user, "LastLine of case form starting at ~p = ~p~n",
+              [Line, LastLine]),
+    [parse_symbol(Line, 'case'),
      ?SPACE(Line),
      expr(Expression),
      parse_symbol(Line, 'of'),
@@ -428,14 +414,12 @@ expr({'case',Line,Expression,Clauses}) ->
 expr({'receive',Line,Clauses}) ->
     ClauseList = map_separate(fun clause/1, Clauses),
     LastLine = last_line(ClauseList),
-    [%line(Line),
-     parse_symbol(Line, 'receive'),
+    [parse_symbol(Line, 'receive'),
      ?SPACE(Line),
      ClauseList,
      parse_symbol(LastLine + 1, 'end')];
 expr({'receive',Line,Clauses,AfterWait,AfterExpressions}) ->
-    [%line(Line),
-     parse_symbol(Line, 'receive'),
+    [parse_symbol(Line, 'receive'),
      map_separate(fun clause/1, Clauses),
      parse_symbol(Line, 'after'),
      expr(AfterWait),
@@ -443,8 +427,7 @@ expr({'receive',Line,Clauses,AfterWait,AfterExpressions}) ->
      map_separate(fun expr/1, AfterExpressions),
      parse_symbol(Line, 'end')];
 expr({'try',Line,Expressions,_WhatIsThis,CatchClauses,AfterExpressions}) ->
-    [%line(Line),
-     parse_symbol(Line, 'try'),
+    [parse_symbol(Line, 'try'),
      ?SPACE(Line),
      map_separate(fun expr/1, Expressions),
      parse_symbol(Line, 'catch'),
@@ -456,19 +439,16 @@ expr({'try',Line,Expressions,_WhatIsThis,CatchClauses,AfterExpressions}) ->
 expr({'fun',Line,Body}) ->
     case Body of
         {clauses,Clauses} ->
-            [%line(Line),
-             parse_symbol(Line, 'fun'),
+            [parse_symbol(Line, 'fun'),
              map_separate(fun(Clause) -> clause('', Clause) end, Clauses)];
         {function,Fun,Arity} ->
-            [%line(Line),
-             parse_symbol(Line, 'fun'),
+            [parse_symbol(Line, 'fun'),
              ?SPACE(Line),
              function(Line, Fun),
              parse_symbol(Line, '/'),
              arity(Line, Arity)];
         {function,M,F,A} when is_atom(M), is_atom(F), is_integer(A) ->
-            [%line(Line),
-             parse_symbol(Line, 'fun'),
+            [parse_symbol(Line, 'fun'),
              module(Line, M),
              parse_symbol(Line, ':'),
              function(Line, F),
@@ -479,8 +459,7 @@ expr({'fun',Line,Body}) ->
             M = expr(M0),
             F = expr(F0),
             A = expr(A0),
-            [%line(Line),
-             parse_symbol(Line, 'fun'),
+            [parse_symbol(Line, 'fun'),
              module(Line, M),
              parse_symbol(Line, ':'),
              function(Line, F),
@@ -591,18 +570,16 @@ expr(_Cons = {cons,Line,Head,Tail}) ->
     [parse_symbol(Line, '['),
      [expr(Head), parse_symbol(Line, ',') | expr({tail, Tail})],
       parse_symbol(Line, ']')];
-expr(_Tail = {tail, {cons, Line, Head, {nil, _}}}) ->
+expr(_Tail = {tail, {cons, _, Head, {nil, _}}}) ->
     %io:format(user, "Tail 1 = ~p~n", [Tail]),
-    [line(Line),
-     expr(Head)];
+    [expr(Head)];
 expr(_Tail_ = {tail, {cons, Line, Head, Tail}}) ->
     %io:format(user, "Tail 2 = ~p~n", [Tail_]),
     [[expr(Head), parse_symbol(Line, ',') | expr({tail, Tail})]];
 expr({tail, {var, Line, Expr}}) ->
     [var(Line, Expr)];
-expr({tail, Call = {call, Line, _Fun, _Args}}) ->
-    [line(Line),
-     expr(Call)];
+expr({tail, Call = {call, _, _Fun, _Args}}) ->
+    [expr(Call)];
 expr({tail, Unknown}) ->
     io:format(user, "Unknown tail ~p~n", [Unknown]);
 expr({record,Line,Name,ExprFields}) ->
@@ -639,13 +616,11 @@ bit_type({Line, {Atom, Integer}}) when is_atom(Atom), is_integer(Integer) ->
      integer(Line, Integer)].
 
 expr_field({record_field,Lf,{atom,_La,F},Expr}) ->
-    [%line(Lf),
-     {Lf, a2b(F), ?RECORD_FIELD_COLOUR},
+    [{Lf, a2b(F), ?RECORD_FIELD_COLOUR},
      parse_symbol(Lf, '='),
      expr(Expr)];
 expr_field({record_field,Lf,{var,_La,'_'},Expr}) ->
-    [%line(Lf),
-     parse_symbol(Lf, '_'),
+    [parse_symbol(Lf, '_'),
      parse_symbol(Lf, '='),
      expr(Expr)].
 
@@ -653,15 +628,11 @@ guard_group(GuardGroup) ->
     separate(lists:map(fun expr/1, GuardGroup)).
 
 fun_name({atom, Line, Name}) ->
-    [%line(Line),
-     {Line, a2b(Name), ?TEXT_COLOUR}];
+    [{Line, a2b(Name), ?TEXT_COLOUR}];
 fun_name(_A = {remote, LineR, {atom, _LineM, Module}, {atom, LineF, Function}}) ->
      %io:format(user, "fun_name(~p)~n", [A]),
-    [%line(LineR),
-     %line(LineM),
-     {LineR, a2b(Module), ?TEXT_COLOUR},
+    [{LineR, a2b(Module), ?TEXT_COLOUR},
      parse_symbol(LineR, ':'),
-     %line(LineF),
      {LineF, a2b(Function), ?TEXT_COLOUR}];
 fun_name(Any) ->
     io:format(user, "Unknown fun_name: ~p~n", [Any]),
@@ -701,29 +672,24 @@ type({ann_type,Line,[{var,Lv,V},T]}) ->
     T1 = type(T),
     {ann_type,Line,[{var,Lv,V},T1]};
 type({atom,Line,A}) ->
-    [%line(Line),
-     atom(Line, A)];
+    [atom(Line, A)];
 type({integer,Line,I}) ->
-    [line(Line),
-     integer(Line, I)];
+    [integer(Line, I)];
 type(Op = {op, _, _, _}) ->
     expr(Op);
 type(Op = {op,_, _, _, _}) ->
     expr(Op);
 type({type,Line,binary,[{_, _, 0},{_, _, 0}]}) ->
-    [%line(Line),
-     parse_symbol(Line, '<<'),
+    [parse_symbol(Line, '<<'),
      parse_symbol(Line, '>>')];
 type({type,Line,binary,[{_, _, M}, {_, _, 0}]}) ->
-    [%line(Line),
-     parse_symbol(Line, '<<'),
+    [parse_symbol(Line, '<<'),
      parse_symbol(Line, '_'),
      parse_symbol(Line, ':'),
      {Line, i2b(M), ?INTEGER_COLOUR},
      parse_symbol(Line, '>>')];
 type({type,Line,binary,[{_, _, 0},{_, _, N}]}) ->
-    [%line(Line),
-     parse_symbol(Line, '<<'),
+    [parse_symbol(Line, '<<'),
      parse_symbol(Line, '_'),
      parse_symbol(Line, ':'),
      parse_symbol(Line, '_'),
@@ -731,8 +697,7 @@ type({type,Line,binary,[{_, _, 0},{_, _, N}]}) ->
      {Line, i2b(N), ?INTEGER_COLOUR},
      parse_symbol(Line, '>>')];
 type({type,Line,binary,[{_, _, M},{_, _, N}]}) ->
-    [%line(Line),
-     parse_symbol(Line, '<<'),
+    [parse_symbol(Line, '<<'),
      parse_symbol(Line, '_'),
      parse_symbol(Line, ':'),
      {Line, i2b(M), ?INTEGER_COLOUR},
@@ -743,26 +708,21 @@ type({type,Line,binary,[{_, _, M},{_, _, N}]}) ->
      {Line, i2b(N), ?INTEGER_COLOUR},
      parse_symbol(Line, '>>')];
 type({type,Line,'fun',[]}) ->
-    [%line(Line),
-     parse_symbol(Line, 'fun'),
+    [parse_symbol(Line, 'fun'),
      parse_symbol(Line, '('),
      parse_symbol(Line, ')')];
-type({type,Line,'fun',[{type,TypeLine,any},B]}) ->
-    [line(Line),
-     parse_symbol(Line, 'fun'),
+type({type,Line,'fun',[{type,_,any},B]}) ->
+    [parse_symbol(Line, 'fun'),
      parse_symbol(Line, '('),
-     line(TypeLine),
      parse_symbol(Line, '('),
      parse_symbol(Line, '...'),
      parse_symbol(Line, ')'),
      parse_symbol(Line, '->'),
      type(B),
      parse_symbol(Line, ')')];
-type({type,Line,'fun',[{type,Lt,product, ArgTypes},TypeResult]}) ->
-    [line(Line),
-     parse_symbol(Line, 'fun'),
+type({type,Line,'fun',[{type,_Lt,product, ArgTypes},TypeResult]}) ->
+    [parse_symbol(Line, 'fun'),
      parse_symbol(Line, '('),
-     line(Lt),
      parse_symbol(Line, '('),
      lists:join(parse_symbol(Line, ','), [type(T) || T <- ArgTypes]),
      parse_symbol(Line, ')'),
@@ -770,30 +730,25 @@ type({type,Line,'fun',[{type,Lt,product, ArgTypes},TypeResult]}) ->
      type(TypeResult),
      parse_symbol(Line, ')')];
 type({type,Line,nil,[]}) ->
-    [line(Line),
-     parse_symbol(Line, '['),
+    [parse_symbol(Line, '['),
      ']'];
 type({type,Line,range,[L,H]}) ->
-    [%line(Line),
-     type(L),
+    [type(L),
      parse_symbol(Line, '..'),
      type(H)];
 type({type,Line,map,any}) ->
-    [%line(Line),
-     parse_symbol(Line, "#"),
+    [parse_symbol(Line, "#"),
      parse_symbol(Line, '{'),
      parse_symbol(Line, '}')];
 type({type,Line,map,Ps}) ->
     Ps1 = map_pair_types(Ps),
-    [%line(Line),
-     parse_symbol(Line, "#"),
+    [parse_symbol(Line, "#"),
      parse_symbol(Line, '{'),
      Ps1,
      parse_symbol(Line, '}')];
 type({type,Line,record,[{atom,_La,N}|Fs]}) ->
     Fs1 = field_types(Fs),
-    [%line(Line),
-     {Line, <<"#">>, ?RECORD_HASH_COLOUR},
+    [{Line, <<"#">>, ?RECORD_HASH_COLOUR},
      {Line, a2b(N), ?RECORD_NAME_COLOUR},
      parse_symbol(Line, '{'),
      Fs1,
@@ -804,36 +759,29 @@ type({type,Line,record,[{atom,_La,N}|Fs]}) ->
     %{remote_type,Line,[{atom,Lm,M},{atom,Ln,N},As1]};
 type({type,Line,tuple,any}) ->
     %{type,Line,tuple,any};
-    [%line(Line),
-     atom(Line, 'tuple'),
+    [atom(Line, 'tuple'),
      parse_symbol(Line, '('),
      parse_symbol(Line, ')')];
 type({type,Line,tuple,Ts}) ->
-    [%line(Line),
-     parse_symbol(Line, '{'),
+    [parse_symbol(Line, '{'),
      type_list(Ts),
      parse_symbol(Line, '}')];
 type({type,Line,union,Ts}) ->
-    [%line(Line),
-     lists:join(parse_symbol(Line, '|'), type_list(Ts))];
+    [lists:join(parse_symbol(Line, '|'), type_list(Ts))];
 type({type,Line,list,Ts}) when is_list(Ts) ->
-    [%line(Line),
-     parse_symbol(Line, '['),
+    [parse_symbol(Line, '['),
      lists:join(parse_symbol(Line, ','), type_list(Ts)),
      parse_symbol(Line, ']')];
 type({type,Line,List,Ts}) when is_list(Ts) ->
-    [%line(Line),
-     {Line, a2b(List), ?TEXT_COLOUR},
+    [{Line, a2b(List), ?TEXT_COLOUR},
      parse_symbol(Line, '('),
      lists:join(parse_symbol(Line, ','), type_list(Ts)),
      parse_symbol(Line, ')')];
 % TODO Figure out what V could be; I've only seen '_'
 type({var, Line, _V}) ->
-    [%line(Line),
-     parse_symbol(Line, '_')];
+    [parse_symbol(Line, '_')];
 type({type,Line,Atom,[]}) when is_atom(Atom) ->
-    [%line(Line),
-     {Line, Atom, ?TEXT_COLOUR},
+    [{Line, Atom, ?TEXT_COLOUR},
      parse_symbol(Line, '('),
      parse_symbol(Line, ')')];
 % TODO A record would fit this pattern, what else?
@@ -848,19 +796,15 @@ map_pair_types(PairTypes) ->
     lists:join(parse_symbol(noline, ','), [pair_type(PT) || PT <- PairTypes]).
 
 pair_type({type, Line, map_field_assoc, [K, V]}) ->
-    [%line(Line),
-     type(K), parse_symbol(Line, '=>'), type(V)];
-pair_type({type, Line, map_field_exact, [K, V]}) ->
-    [line(Line),
-     type(K), ':=', type(V)].
+    [type(K), parse_symbol(Line, '=>'), type(V)];
+pair_type({type, _, map_field_exact, [K, V]}) ->
+    [type(K), ':=', type(V)].
 
 field_types([{type,Line,field_type,[{atom,La,A},T]}|Fs]) ->
-    %L = line(Line),
     Atom = {La, a2b(A), ?ATOM_COLOUR},
     Symbol = parse_symbol(Line, '::'),
     T = type(T),
-    [%L,
-     Atom, Symbol, T | field_types(Fs)];
+    [Atom, Symbol, T | field_types(Fs)];
 field_types([]) -> [].
 
 type_list([T|Ts]) ->
@@ -883,8 +827,7 @@ lc_bc_qual(FilterExpression) ->
     expr(FilterExpression).
 
 bin({bin_element,Line,Var,Size,MaybeTypes}) ->
-    [%line(Line),
-     expr(Var),
+    [expr(Var),
      case Size of
          default ->
              [];
@@ -1035,15 +978,12 @@ parse_symbol(Line, 'end') ->
 parse_symbol(Line, 'case') ->
     {Line, <<"case">>, ?CASE_COLOUR};
 parse_symbol(Line, 'of') ->
-    {Line, <<"of">>, ?CASE_COLOUR};
+    {Line, <<" of">>, ?CASE_COLOUR};
 
 parse_symbol(Line, Atom) ->
     io:format("No colour specified for atom '~p' on line ~p~n",
               [Atom, Line]),
     {Line, a2b(Atom), ?GREY}.
-
-line(_Line) ->
-    [].
 
 separate(List) when is_list(List) ->
     separate(parse_symbol(noline, ', '), List).
