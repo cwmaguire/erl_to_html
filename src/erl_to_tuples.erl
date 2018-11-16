@@ -1060,5 +1060,6 @@ map_separate(Separator, Fun, List) ->
 last_line({Line, _, _}) ->
     Line;
 last_line(List) when is_list(List) ->
-    [Last | _] = lists:reverse(List),
-    last_line(Last).
+    LineNumbers = [L || {L, _, _} <- lists:flatten(List), is_integer(L)],
+    [Last | _] = lists:reverse(lists:sort(LineNumbers)),
+    Last.
