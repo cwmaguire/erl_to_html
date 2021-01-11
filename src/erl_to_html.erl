@@ -258,27 +258,27 @@ record_type_line(RecordDef, RecordType) ->
     end,
     [lit_line(Line), '::'].
 
-catch_clause({clause, Line, Exception, GuardGroups, Body}) ->
-    [{tuple, _Line, [Class, ExceptionPattern, _Wild]}] = Exception,
-    [line(Line),
+catch_clause({clause, Anno, Exception, GuardGroups, Body}) ->
+    [{tuple, _Anno, [Class, ExceptionPattern, _Wild]}] = Exception,
+    [line(Anno),
      expr(Class), ':', expr(ExceptionPattern),
      separate(';', lists:map(fun guard_group/1, GuardGroups)),
      '->',
      separate(lists:map(fun expr/1, Body))].
 
-clause({clause, Line, Head, GuardGroups, Body}) ->
-    clause('', {clause, Line, Head, GuardGroups, Body}).
+clause({clause, Anno, Head, GuardGroups, Body}) ->
+    clause('', {clause, Anno, Head, GuardGroups, Body}).
 
-clause(Name, {clause,Line,Head,GuardGroups,Body}) ->
-    [line(Line),
+clause(Name, {clause,Anno,Head,GuardGroups,Body}) ->
+    [line(Anno),
      span(<<"function">>, atom_to_list(Name)),
      head(Head),
      separate(';', lists:map(fun guard_group/1, GuardGroups)),
      '->',
      separate(lists:map(fun expr/1, Body))].
 
-case_clause({clause, Line, [Head], GuardGroups, Body}) ->
-    [line(Line),
+case_clause({clause, Anno, [Head], GuardGroups, Body}) ->
+    [line(Anno),
      expr(Head),
      case GuardGroups of
          [] ->
@@ -296,110 +296,110 @@ head(Expressions) ->
 
 %% -type pattern(Pattern) -> Pattern.
 %%  N.B. Only valid patterns are included here.
-expr({lc,Line,Result,Quals}) ->
+expr({lc,Anno,Result,Quals}) ->
     E1 = expr(Result),
-    [line(Line),
+    [line(Anno),
      '[', E1, '||', map_separate(fun lc_bc_qual/1, Quals), ']'];
-expr({bc,Line,E0,Quals}) ->
+expr({bc,Anno,E0,Quals}) ->
     E1 = expr(E0),
-    [line(Line),
+    [line(Anno),
      '<<', E1, '||', map_separate(fun lc_bc_qual/1, Quals), '>>'];
-expr({block,Line,Expressions}) ->
-    [line(Line),
+expr({block,Anno,Expressions}) ->
+    [line(Anno),
      'begin', map_separate(fun expr/1, Expressions), 'end'];
-expr({'if',Line,Clauses}) ->
-    [line(Line),
+expr({'if',Anno,Clauses}) ->
+    [line(Anno),
      'if',
      map_separate(fun clause/1, Clauses),
      'end'];
-expr({'case',Line,Expression,Clauses}) ->
-    [line(Line),
+expr({'case',Anno,Expression,Clauses}) ->
+    [line(Anno),
      'case', expr(Expression), 'of',
      map_separate(';', fun case_clause/1, Clauses),
      'end'];
-expr({'receive',Line,Clauses}) ->
-    [line(Line),
+expr({'receive',Anno,Clauses}) ->
+    [line(Anno),
      'receive', map_separate(fun clause/1, Clauses),
      'end'];
-expr({'receive',Line,Clauses,AfterWait,AfterExpressions}) ->
-    [line(Line),
+expr({'receive',Anno,Clauses,AfterWait,AfterExpressions}) ->
+    [line(Anno),
      'receive', map_separate(fun clause/1, Clauses),
      'after', expr(AfterWait), '->',
      map_separate(fun expr/1, AfterExpressions),
      'end'];
-expr({'try',Line,Expressions,_WhatIsThis,CatchClauses,AfterExpressions}) ->
-    [line(Line),
+expr({'try',Anno,Expressions,_WhatIsThis,CatchClauses,AfterExpressions}) ->
+    [line(Anno),
      'try', map_separate(fun expr/1, Expressions),
      'catch', map_separate(';', fun catch_clause/1, CatchClauses),
      'after', map_separate(fun expr/1, AfterExpressions),
      'end'];
-expr({'fun',Line,Body}) ->
+expr({'fun',Anno,Body}) ->
     case Body of
         {clauses,Clauses} ->
-            [line(Line),
+            [line(Anno),
              'fun',
              map_separate(fun(Clause) -> clause('', Clause) end, Clauses)];
         {function,Fun,Arity} ->
-            [line(Line),
+            [line(Anno),
              function(Fun), '/', arity(Arity)];
         {function,M,F,A} when is_atom(M), is_atom(F), is_integer(A) ->
-            [line(Line),
+            [line(Anno),
              span(<<"module">>, a2b(M)), ':', function(F), '/', arity(A)];
         {function,M0,F0,A0} ->
             %% R15: fun M:F/A with variables.
             M = expr(M0),
             F = expr(F0),
             A = expr(A0),
-            [line(Line),
+            [line(Anno),
              span(<<"module">>, a2b(M)),
              ':', span("function", F),
              '/', span("arity", A)]
     end;
-expr({call,Line,Fun,Args}) ->
+expr({call,Anno,Fun,Args}) ->
     %% N.B. If F an atom then call to local function or BIF, if F a
     %% remote structure (see below) then call to other module,
     %% otherwise apply to "function".
      %io:format(user, "calling expr(~p)~n", [Fun]),
-    [line(Line),
+    [line(Anno),
      %fun_name(Fun), '(', map_separate(fun expr/1, Args), ')'];
      fun_name(Fun), '(', map_separate(fun expr/1, Args), ')'];
-expr({'catch',Line,Expression}) ->
+expr({'catch',Anno,Expression}) ->
     %% No new variables added.
-    [line(Line),
+    [line(Anno),
      'catch', expr(Expression)];
-expr({match,Line,Expr1,Expr2}) ->
-    [line(Line),
+expr({match,Anno,Expr1,Expr2}) ->
+    [line(Anno),
      expr(Expr1), '=', expr(Expr2)];
-expr({bin,Line,BinElements}) ->
-    [line(Line),
+expr({bin,Anno,BinElements}) ->
+    [line(Anno),
      '<<', map_separate(fun bin/1, BinElements), '>>'];
-expr({op,Line,Op,A}) ->
-    [line(Line),
+expr({op,Anno,Op,A}) ->
+    [line(Anno),
      span("operator", atom_to_list(Op)), expr(A)];
-expr({op,Line,'==',L,R}) ->
-    [line(Line),
+expr({op,Anno,'==',L,R}) ->
+    [line(Anno),
      expr(L), span(<<"double_equals">>, "=="), expr(R)];
-expr({op,Line,Op,L,R}) ->
-    [line(Line),
+expr({op,Anno,Op,L,R}) ->
+    [line(Anno),
      expr(L), span("operator", atom_to_list(Op)), expr(R)];
-expr({remote, Line, {atom, _MLine, Module}, {atom, _FLine, Function}}) ->
-    [line(Line),
+expr({remote, Anno, {atom, _MAnno, Module}, {atom, _FAnno, Function}}) ->
+    [line(Anno),
      span(<<"module">>, a2b(Module)), ':', function(Function)];
-expr({nil, Line}) ->
-    [line(Line), '[', ']'];
-expr({var,Line,V}) ->
-    [line(Line),
+expr({nil, Anno}) ->
+    [line(Anno), '[', ']'];
+expr({var,Anno,V}) ->
+    [line(Anno),
      var(V)];
-expr({integer,Line,I}) ->
-    [line(Line),
+expr({integer,Anno,I}) ->
+    [line(Anno),
      integer(I)];
-expr({char,Line,C}) ->
-    [line(Line),
+expr({char,Anno,C}) ->
+    [line(Anno),
      span("char", [$$, C])];
-expr({float,Line,F}) ->
-    [line(Line),
+expr({float,Anno,F}) ->
+    [line(Anno),
      span("float", io_lib:format("~w", [F]))];
-expr({atom,Line,A}) when A == ':';
+expr({atom,Anno,A}) when A == ':';
                          A == '<<';
                          A == '>>';
                          A == '_';
@@ -417,65 +417,65 @@ expr({atom,Line,A}) when A == ':';
                          A == '(';
                          A == '(';
                          A == '"' ->
-    io:format(user, "{atom, Line, ~p}", [A]),
+    io:format(user, "{atom, Anno, ~p}", [A]),
     Str = [$', atom_to_list(A), $'],
-    [line(Line),
+    [line(Anno),
      span("atom", list_to_binary(Str))];
-expr({atom,Line,A}) ->
-[line(Line),
+expr({atom,Anno,A}) ->
+[line(Anno),
      span("atom", atom_to_list(A))];
-expr({string,Line,S}) ->
-    [line(Line),
+expr({string,Anno,S}) ->
+    [line(Anno),
      '"',
      %{no_parse, <<"--><!-- before parse_control_sequences(S) --><!--\n">>},
      parse_control_sequences(S),
      %{no_parse, <<"--><!-- after parse_control_sequences(S) --><!--\n">>},
      '"'];
-expr({tuple,Line,Exprs}) ->
-    [line(Line),
+expr({tuple,Anno,Exprs}) ->
+    [line(Anno),
      ['{', map_separate(fun expr/1, Exprs), '}']];
 %% There's a special case for all cons's after the first: {tail, _}
 %% so this is a list of one item.
-expr({cons,Line,Head,{nil, _}}) ->
-    [line(Line),
+expr({cons,Anno,Head,{nil, _}}) ->
+    [line(Anno),
      '[', expr(Head), ']'];
-expr({cons,Line,Head,{var, _Line2, '_'}}) ->
-    [line(Line),
+expr({cons,Anno,Head,{var, _Anno2, '_'}}) ->
+    [line(Anno),
      '[', expr(Head), '|', '_', ']'];
-expr(_Cons = {cons,Line,Head,Tail}) ->
+expr(_Cons = {cons,Anno,Head,Tail}) ->
     %io:format(user, "Cons -> Tail = ~p~n", [Cons]),
-    [line(Line),
+    [line(Anno),
      '[', [expr(Head), ',' | expr({tail, Tail})], ']'];
-expr(_Tail = {tail, {cons, Line, Head, {nil, _}}}) ->
+expr(_Tail = {tail, {cons, Anno, Head, {nil, _}}}) ->
     %io:format(user, "Tail 1 = ~p~n", [Tail]),
 
-    [line(Line),
+    [line(Anno),
      [expr(Head)]];
-expr(_Tail_ = {tail, {cons, Line, Head, Tail}}) ->
+expr(_Tail_ = {tail, {cons, Anno, Head, Tail}}) ->
     %io:format(user, "Tail 2 = ~p~n", [Tail_]),
-    [line(Line),
+    [line(Anno),
      [expr(Head), ',' | expr({tail, Tail})]];
-expr({tail, {var, Line, Expr}}) ->
-    [line(Line),
+expr({tail, {var, Anno, Expr}}) ->
+    [line(Anno),
      var(Expr)];
-expr({tail, Call = {call, Line, _Fun, _Args}}) ->
-    [line(Line),
+expr({tail, Call = {call, Anno, _Fun, _Args}}) ->
+    [line(Anno),
      expr(Call)];
 expr({tail, Unknown}) ->
     io:format(user, "Unknown tail ~p~n", [Unknown]);
-expr({record,Line,Name,ExprFields}) ->
-    [line(Line),
+expr({record,Anno,Name,ExprFields}) ->
+    [line(Anno),
      [span("record_hash", {no_parse, <<"#">>}), span("record_name", atom_to_list(Name)), '{',
       map_separate(fun expr_field/1, ExprFields),
       '}']];
-expr({record_index,Line,Name,Field}) ->
-    [line(Line),
+expr({record_index,Anno,Name,Field}) ->
+    [line(Anno),
      [span("record", ['#', atom_to_list(Name)]), '.', expr(Field)]];
-expr({record_field,Line,Expression,RecName,Field}) ->
-    [line(Line),
+expr({record_field,Anno,Expression,RecName,Field}) ->
+    [line(Anno),
      [expr(Expression), '#', span("record", atom_to_list(RecName)), '.', expr(Field)]];
 % How does this happen? (Foo).bar ?
-%expr({record_field,Line,Rec0,Field0}) ->
+%expr({record_field,Anno,Rec0,Field0}) ->
     %Rec1 = expr(Rec0),
     %Field1 = expr(Field0);
 expr(UnknownExpr) ->
@@ -498,16 +498,16 @@ expr_field({record_field,Lf,{var,_La,'_'},Expr}) ->
 guard_group(GuardGroup) ->
     separate(lists:map(fun expr/1, GuardGroup)).
 
-fun_name({atom, _Line, Name}) ->
-    [%line(Line),
+fun_name({atom, _Anno, Name}) ->
+    [%line(Anno),
      span(<<"fun_call">>, Name)];
-fun_name(_A = {remote, _LineR, {atom, _LineM, Module}, {atom, _LineF, Function}}) ->
+fun_name(_A = {remote, _AnnoR, {atom, _AnnoM, Module}, {atom, _AnnoF, Function}}) ->
      %io:format(user, "fun_name(~p)~n", [A]),
-    [%line(LineR),
-     %line(LineM),
+    [%line(AnnoR),
+     %line(AnnoM),
      span(<<"remote_fun_module">>, a2b(Module)),
      ':',
-     %line(LineF),
+     %line(AnnoF),
      span(<<"fun_call">>, a2b(Function))];
 fun_name(Any) ->
     io:format(user, "Unknown fun_name: ~p~n", [Any]),
@@ -543,82 +543,82 @@ span_bins(String) ->
 %%  Allow filters to be both guard tests and general expressions.
 
 % No idea what ann_type is
-type({ann_type,Line,[{var,Lv,V},T]}) ->
+type({ann_type,Anno,[{var,Lv,V},T]}) ->
     T1 = type(T),
-    {ann_type,Line,[{var,Lv,V},T1]};
-type({atom,Line,A}) ->
-    [line(Line), atom(A)];
-type({integer,Line,I}) ->
-    [line(Line), integer(I)];
+    {ann_type,Anno,[{var,Lv,V},T1]};
+type({atom,Anno,A}) ->
+    [line(Anno), atom(A)];
+type({integer,Anno,I}) ->
+    [line(Anno), integer(I)];
 type(Op = {op, _, _, _}) ->
     expr(Op);
 type(Op = {op,_, _, _, _}) ->
     expr(Op);
-type({type,Line,binary,[{_, _, 0},{_, _, 0}]}) ->
-    [line(Line), '<<', '>>'];
-type({type,Line,binary,[{_, _, M}, {_, _, 0}]}) ->
-    [line(Line),
+type({type,Anno,binary,[{_, _, 0},{_, _, 0}]}) ->
+    [line(Anno), '<<', '>>'];
+type({type,Anno,binary,[{_, _, M}, {_, _, 0}]}) ->
+    [line(Anno),
      '<<', '_', ':', span(<<"integer">>, i2b(M)), '>>'];
-type({type,Line,binary,[{_, _, 0},{_, _, N}]}) ->
-    [line(Line),
+type({type,Anno,binary,[{_, _, 0},{_, _, N}]}) ->
+    [line(Anno),
      '<<', '_', ':', '_', '*', span(<<"integer">>, i2b(N)), '>>'];
-type({type,Line,binary,[{_, _, M},{_, _, N}]}) ->
-    [line(Line),
+type({type,Anno,binary,[{_, _, M},{_, _, N}]}) ->
+    [line(Anno),
      '<<', '_', ':', span(<<"integer">>, i2b(M)), ',',
      '_', ':', '_', '*', span(<<"integer">>, i2b(N)), '>>'];
-type({type,Line,'fun',[]}) ->
-    [line(Line), span(<<"fun">>), '(', ')'];
-type({type,Line,'fun',[{type,Lt,any},B]}) ->
-    [line(Line), span(<<"fun">>), '(',
+type({type,Anno,'fun',[]}) ->
+    [line(Anno), span(<<"fun">>), '(', ')'];
+type({type,Anno,'fun',[{type,Lt,any},B]}) ->
+    [line(Anno), span(<<"fun">>), '(',
      line(Lt), '(', '...', ')', '->', type(B), ')'];
-type({type,Line,'fun',[{type,Lt,product, ArgTypes},TypeResult]}) ->
-    [line(Line),
+type({type,Anno,'fun',[{type,Lt,product, ArgTypes},TypeResult]}) ->
+    [line(Anno),
      span("fun"),
      '(',
      line(Lt), '(',
      lists:join(',', [type(T) || T <- ArgTypes]),
      ')', '->', type(TypeResult),
      ')'];
-type({type,Line,nil,[]}) ->
-    [line(Line), '[', ']'];
-type({type,Line,range,[L,H]}) ->
-    [line(Line), type(L), '..', type(H)];
-type({type,Line,map,any}) ->
-    [line(Line), span(<<"map_hash">>, "#"), '{', '}'];
-type({type,Line,map,Ps}) ->
+type({type,Anno,nil,[]}) ->
+    [line(Anno), '[', ']'];
+type({type,Anno,range,[L,H]}) ->
+    [line(Anno), type(L), '..', type(H)];
+type({type,Anno,map,any}) ->
+    [line(Anno), span(<<"map_hash">>, "#"), '{', '}'];
+type({type,Anno,map,Ps}) ->
     Ps1 = map_pair_types(Ps),
-    [line(Line), span(<<"map_hash">>, "#"), '{', Ps1, '}'];
-type({type,Line,record,[{atom,_La,N}|Fs]}) ->
+    [line(Anno), span(<<"map_hash">>, "#"), '{', Ps1, '}'];
+type({type,Anno,record,[{atom,_La,N}|Fs]}) ->
     Fs1 = field_types(Fs),
-    [line(Line),
+    [line(Anno),
      span(<<"record_hash">>, <<"#">>), span(<<"record_name">>, a2b(N)), '{', Fs1, '}'];
 
-%type({remote_type,Line,[{atom,Lm,M},{atom,Ln,N},As]}) ->
+%type({remote_type,Anno,[{atom,Lm,M},{atom,Ln,N},As]}) ->
     %As1 = type_list(As),
-    %{remote_type,Line,[{atom,Lm,M},{atom,Ln,N},As1]};
-type({type,Line,tuple,any}) ->
-    %{type,Line,tuple,any};
-    [line(Line), 'tuple', '(', ')'];
-type({type,Line,tuple,Ts}) ->
-    [line(Line), '{', type_list(Ts), '}'];
-type({type,Line,union,Ts}) ->
-    [line(Line), lists:join('|', type_list(Ts))];
-type({type,Line,list,Ts}) when is_list(Ts) ->
-    [line(Line), '[', lists:join(',', type_list(Ts)), ']'];
-type({type,Line,List,Ts}) when is_list(Ts) ->
-    [line(Line), span(a2b(List)), '(', lists:join(',', type_list(Ts)), ')'];
+    %{remote_type,Anno,[{atom,Lm,M},{atom,Ln,N},As1]};
+type({type,Anno,tuple,any}) ->
+    %{type,Anno,tuple,any};
+    [line(Anno), 'tuple', '(', ')'];
+type({type,Anno,tuple,Ts}) ->
+    [line(Anno), '{', type_list(Ts), '}'];
+type({type,Anno,union,Ts}) ->
+    [line(Anno), lists:join('|', type_list(Ts))];
+type({type,Anno,list,Ts}) when is_list(Ts) ->
+    [line(Anno), '[', lists:join(',', type_list(Ts)), ']'];
+type({type,Anno,List,Ts}) when is_list(Ts) ->
+    [line(Anno), span(a2b(List)), '(', lists:join(',', type_list(Ts)), ')'];
 % TODO Figure out what V could be; I've only seen '_'
-type({var, Line, _V}) ->
-    [line(Line), '_'];
-%type({user_type,Line,N,As}) ->
+type({var, Anno, _V}) ->
+    [line(Anno), '_'];
+%type({user_type,Anno,N,As}) ->
     %As1 = type_list(As),
-    %{user_type,Line,N,As1};
-type({type,Line,Atom,[]}) when is_atom(Atom) ->
-    [line(Line), Atom, '(', ')'];
+    %{user_type,Anno,N,As1};
+type({type,Anno,Atom,[]}) when is_atom(Atom) ->
+    [line(Anno), Atom, '(', ')'];
 % TODO A record would fit this pattern, what else?
-type(UnknownType = {type,_Line,_N,_As}) ->
+type(UnknownType = {type,_Anno,_N,_As}) ->
     %As1 = type_list(As),
-    %{type,Line,N,As1};
+    %{type,Anno,N,As1};
     io:format(user, "Unknown type: ~p~n", [UnknownType]);
 type(UnknownType) ->
     io:format(user, "Unknown type: ~p~n", [UnknownType]).
@@ -626,13 +626,13 @@ type(UnknownType) ->
 map_pair_types(PairTypes) ->
     lists:join(',', [pair_type(PT) || PT <- PairTypes]).
 
-pair_type({type, Line, map_field_assoc, [K, V]}) ->
-    [line(Line), type(K), '=>', type(V)];
-pair_type({type, Line, map_field_exact, [K, V]}) ->
-    [line(Line), type(K), ':=', type(V)].
+pair_type({type, Anno, map_field_assoc, [K, V]}) ->
+    [line(Anno), type(K), '=>', type(V)];
+pair_type({type, Anno, map_field_exact, [K, V]}) ->
+    [line(Anno), type(K), ':=', type(V)].
 
-field_types([{type,Line,field_type,[{atom,_La,A},T]}|Fs]) ->
-    [line(Line), A, '::', type(T) | field_types(Fs)];
+field_types([{type,Anno,field_type,[{atom,_La,A},T]}|Fs]) ->
+    [line(Anno), A, '::', type(T) | field_types(Fs)];
 field_types([]) -> [].
 
 type_list([T|Ts]) ->
@@ -643,15 +643,15 @@ type_list([]) -> [].
 %% This is a list of generators _or_ filters
 %% which are simply expressions
 %% A generator is a target and a source
-lc_bc_qual({generate,_Line,Target,Source}) ->
+lc_bc_qual({generate,_Anno,Target,Source}) ->
     ['[', expr(Target), '<-', expr(Source), ']'];
-lc_bc_qual({b_generate,_Line,Target,Source}) ->
+lc_bc_qual({b_generate,_Anno,Target,Source}) ->
     [expr(Target), '<=', expr(Source)];
 lc_bc_qual(FilterExpression) ->
     expr(FilterExpression).
 
-bin({bin_element,Line,Var,Size,MaybeTypes}) ->
-    [line(Line),
+bin({bin_element,Anno,Var,Size,MaybeTypes}) ->
+    [line(Anno),
      expr(Var),
      case Size of
          default ->
@@ -666,7 +666,7 @@ bin({bin_element,Line,Var,Size,MaybeTypes}) ->
              ['/', map_separate('-', fun bit_type/1, MaybeTypes)]
      end].
 
-%bin_element({bin_element,Line,Expression,Size1,Type1}) ->
+%bin_element({bin_element,Anno,Expression,Size1,Type1}) ->
     %Size2 = case Size1 of
 		 %default ->
 		 %"";
@@ -679,7 +679,7 @@ bin({bin_element,Line,Var,Size,MaybeTypes}) ->
 		 %_ ->
 		 %['/', separate('-', lists:map(fun bit_type/1, Type1))]
 	 %end,
-    %[line(Line),
+    %[line(Anno),
      %expr(Expression), Size2, Type2].
 
 var(Atom) ->
