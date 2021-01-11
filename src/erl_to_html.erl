@@ -463,10 +463,10 @@ expr({tail, Call = {call, Line, _Fun, _Args}}) ->
      expr(Call)];
 expr({tail, Unknown}) ->
     io:format(user, "Unknown tail ~p~n", [Unknown]);
-expr({record,Line,Name,exprFields}) ->
+expr({record,Line,Name,ExprFields}) ->
     [line(Line),
-     [span("record_hash", {no_parse, {no_parse, <<"#">>}}), span("record_name", atom_to_list(Name)), '{',
-      map_separate(fun expr_field/1, exprFields),
+     [span("record_hash", {no_parse, <<"#">>}), span("record_name", atom_to_list(Name)), '{',
+      map_separate(fun expr_field/1, ExprFields),
       '}']];
 expr({record_index,Line,Name,Field}) ->
     [line(Line),
@@ -656,7 +656,7 @@ bin({bin_element,Line,Var,Size,MaybeTypes}) ->
      case Size of
          default ->
              "";
-         Int ->
+         {integer, _, Int} ->
              [':', integer(Int)]
      end,
      case MaybeTypes of
