@@ -182,7 +182,7 @@ html({attribute,Line,module,Mod}) ->
      '-', 'module', '(', module(Mod), ')', '.'];
 html({attribute,_AttributeLine,file,{File,_FileLine}}) ->	%This is valid anywhere.
     %% Manually set this to 0 to come before any source lines
-    [line(0),
+    [lit_line(0),
      '%', '-', 'file', '(', span(<<"file-literal">>, File), ')', '.'];
 html({attribute,Line,export,Es0}) ->
     [line(Line),
@@ -211,7 +211,7 @@ html({error,E}) ->
 html({warning,W}) ->
     {warning,W};
 html({eof,Line}) ->
-    [line(Line), span(<<"eof">>)].
+    [get_location_line(Line), span(<<"eof">>)].
 
 farity_list(FunArities) ->
     separate(lists:map(fun farity/1, FunArities)).
@@ -248,15 +248,15 @@ record_def({record_field,Line,{atom,_La,A}}) ->
      span("record_field", a2b(A))].
 
 record_type_line(RecordDef, RecordType) ->
-    RecordLine = element(2, RecordDef),
-    TypeLine = element(2, RecordType),
+    RecordLine = get_line(element(2, RecordDef)),
+    TypeLine = get_line(element(2, RecordType)),
     Line = case TypeLine - RecordLine of
         X when X > 1 ->
             RecordLine + 1;
         _ ->
             RecordLine
     end,
-    [line(Line), '::'].
+    [lit_line(Line), '::'].
 
 catch_clause({clause, Line, Exception, GuardGroups, Body}) ->
     [{tuple, _Line, [Class, ExceptionPattern, _Wild]}] = Exception,
@@ -802,8 +802,20 @@ parse_symbol(eof) ->
 parse_symbol(Atom) ->
     span(atom_to_list(Atom)).
 
-line(Line) ->
+line(Anno) ->
+    Line = get_line(Anno),
+    lit_line(Line).
+
+lit_line(Line) ->
     {line, Line}.
+
+get_line(Anno) ->
+    erl_anno:line(Anno).
+
+get_location_line(Line) when is_integer(Line) ->
+    Line;
+get_location_line({Line, Column}) when is_integer(Line), is_integer(Column) ->
+    Line.
 
 separate(List) when is_list(List) ->
     separate(',', List).
